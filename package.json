@@ -19,6 +19,7 @@
     "db:studio": "drizzle-kit studio",
     "db:maintenance": "tsx lib/db/run-maintenance.ts",
     "auth:create-admin": "tsx scripts/create-admin.ts",
+    "auth:create-doctors": "tsx scripts/create-doctor-accounts.ts",
     "auth:check": "tsx scripts/check-auth.ts"
   },
   "dependencies": {

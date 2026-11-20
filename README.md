@@ -172,6 +172,9 @@ are `patient` (public sign-up), `doctor` and `admin` (assigned by an admin).
   (counted in `rate_limits` by IP address, from Vercel's `x-forwarded-for`).
 - **First admin:** `npm run auth:create-admin -- --email <email> --name "<name>"` against the
   branch in `DATABASE_URL`, with that environment's pepper. It asks for the password.
+- **Doctor accounts (dev and staging):** `npm run auth:create-doctors` creates an account
+  `<slug>@moskat.example` (`--domain` to change it) for every active doctor profile without one,
+  links it, and gives them all the password it asks for. Refuses to run against `DATABASE_URL_MAIN`.
 - **Password hashing** is scrypt N=16384, r=16, p=1 with a pepper (`lib/auth/password.ts`).
   Hashes carry their parameters, so they can be raised later without resetting passwords.
 - **Access check:** `npm run auth:check -- --base-url http://localhost:3000` (or a preview URL)
