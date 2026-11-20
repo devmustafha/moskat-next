@@ -79,7 +79,7 @@ export const doctors = pgTable(
     photo: jsonb("photo").$type<ImageAsset>(),
     /** Online consultation fee in minor units (cents). Never a float. */
     consultationFeeCents: integer("consultation_fee_cents").notNull(),
-    currency: char("currency", { length: 3 }).notNull().default("USD"),
+    currency: char("currency", { length: 3 }).notNull().default(siteConfig.currency),
     consultationMinutes: smallint("consultation_minutes").notNull(),
     /** IANA time zone the weekly availability is written in; defaults to the hospital's. */
     timeZone: text("time_zone").notNull().default(siteConfig.timeZone),

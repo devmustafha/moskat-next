@@ -7,10 +7,11 @@ export const siteConfig = {
   name: "Moskat",
   tagline: "Hospital & online care",
   description: "Specialist hospital care in person and online, from a team that takes time to listen.",
-  locale: "en-US",
-  currency: "USD",
+  locale: "en-NG",
+  /** Paystack charges in NGN; every amount is integer kobo (minor units). */
+  currency: "NGN",
   /** Hospital time zone: the default for doctors' weekly hours and for displaying times. */
-  timeZone: "America/New_York",
+  timeZone: "Africa/Lagos",
 
   booking: {
     /** Earliest bookable slot, in hours from now. */

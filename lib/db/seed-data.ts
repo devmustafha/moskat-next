@@ -129,7 +129,7 @@ export const seedDoctors: SeedDoctor[] = [
     ],
     interests: ["High-risk pregnancy", "Antenatal care", "Endometriosis", "Menopause"],
     videoDays: ["Monday", "Wednesday", "Friday"],
-    consultationFeeCents: 4500,
+    consultationFeeCents: 2_500_000,
     consultationMinutes: 30,
     photo: {
       src: "https://images.unsplash.com/photo-1643297654416-05795d62e39c",
@@ -153,7 +153,7 @@ export const seedDoctors: SeedDoctor[] = [
     ],
     interests: ["Hypertension", "Preventive cardiology", "Heart failure", "Cardiac rehabilitation"],
     videoDays: ["Tuesday", "Thursday"],
-    consultationFeeCents: 5500,
+    consultationFeeCents: 3_500_000,
     consultationMinutes: 30,
     photo: {
       src: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d",
@@ -177,7 +177,7 @@ export const seedDoctors: SeedDoctor[] = [
     ],
     interests: ["Childhood asthma", "Food allergy", "Eczema", "Newborn care"],
     videoDays: ["Monday", "Tuesday", "Thursday", "Saturday"],
-    consultationFeeCents: 4000,
+    consultationFeeCents: 2_000_000,
     consultationMinutes: 20,
     photo: {
       src: "https://images.unsplash.com/photo-1594824476967-48c8b964273f",
@@ -201,7 +201,7 @@ export const seedDoctors: SeedDoctor[] = [
     ],
     interests: ["Knee injuries", "Running injuries", "Shoulder pain", "Return to sport"],
     videoDays: ["Wednesday", "Friday"],
-    consultationFeeCents: 5000,
+    consultationFeeCents: 3_000_000,
     consultationMinutes: 20,
     photo: {
       src: "https://images.unsplash.com/photo-1622253692010-333f2da6031d",
@@ -225,7 +225,7 @@ export const seedDoctors: SeedDoctor[] = [
     ],
     interests: ["Migraine", "Epilepsy", "Stroke prevention", "Nerve pain"],
     videoDays: ["Monday", "Thursday"],
-    consultationFeeCents: 6000,
+    consultationFeeCents: 4_000_000,
     consultationMinutes: 30,
   },
   {
@@ -242,7 +242,7 @@ export const seedDoctors: SeedDoctor[] = [
     ],
     interests: ["Palpitations", "Atrial fibrillation", "Pacemaker follow-up", "Wearable heart data"],
     videoDays: ["Tuesday", "Wednesday", "Saturday"],
-    consultationFeeCents: 5500,
+    consultationFeeCents: 3_500_000,
     consultationMinutes: 20,
   },
 ];

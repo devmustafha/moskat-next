@@ -22,7 +22,7 @@ type BookingFormProps = {
   doctorSlug: string;
   doctorTimeZone: string;
   timeZoneLabel: string;
-  /** "$45 for 30 minutes", repeated next to the confirm button. */
+  /** "₦25,000 for 30 minutes", repeated next to the confirm button. */
   feeLabel: string;
   days: SlotDay[];
   /** A signed-in patient's name and email, to prefill the form. The booking is linked to their account. */

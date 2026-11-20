@@ -19,7 +19,7 @@ function currencyFormatter(currency: string, fractionDigits: number) {
 }
 
 /**
- * Format an amount in minor units (cents), e.g. 4500 → "$45", 4550 → "$45.50".
+ * Format an amount in minor units (kobo for NGN), e.g. 2500000 → "₦25,000", 2500050 → "₦25,000.50".
  * Whole amounts are shown without decimals.
  */
 export function formatPrice(cents: number, currency: string = siteConfig.currency) {
@@ -35,22 +35,24 @@ const dateFormatter = new Intl.DateTimeFormat(siteConfig.locale, {
   timeZone: "UTC",
 });
 
-/** Format an ISO calendar date, e.g. "2026-11-04" → "November 4, 2026". */
+/** Format an ISO calendar date, e.g. "2026-11-04" → "4 November 2026". */
 export function formatDate(isoDate: string) {
   return dateFormatter.format(new Date(`${isoDate}T00:00:00Z`));
 }
 
-/** "Monday, November 23" for an instant, in the given time zone. */
+/** "Monday, 23 November" for an instant, in the given time zone. */
 export function formatDay(instant: Date, timeZone: string) {
   return new Intl.DateTimeFormat(siteConfig.locale, { weekday: "long", month: "long", day: "numeric", timeZone }).format(instant);
 }
 
-/** "9:30 AM" for an instant, in the given time zone. */
+// Times use a 12-hour clock ("9:30 am") like the site copy, although en-NG defaults to 24 hours.
+
+/** "9:30 am" for an instant, in the given time zone. */
 export function formatTime(instant: Date, timeZone: string) {
-  return new Intl.DateTimeFormat(siteConfig.locale, { hour: "numeric", minute: "2-digit", timeZone }).format(instant);
+  return new Intl.DateTimeFormat(siteConfig.locale, { hour: "numeric", minute: "2-digit", hour12: true, timeZone }).format(instant);
 }
 
-/** "Monday, November 23, 9:30 AM EST": a full appointment time with the zone spelled out. */
+/** "Monday, 23 November 2026 at 9:30 am WAT": a full appointment time with the zone spelled out. */
 export function formatSlot(instant: Date, timeZone: string) {
   return new Intl.DateTimeFormat(siteConfig.locale, {
     weekday: "long",
@@ -59,12 +61,13 @@ export function formatSlot(instant: Date, timeZone: string) {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
     timeZone,
     timeZoneName: "short",
   }).format(instant);
 }
 
-/** Readable zone name, e.g. "Eastern Time" for America/New_York. */
+/** Readable zone name, e.g. "West Africa Time" for Africa/Lagos. */
 export function formatTimeZoneName(timeZone: string, at: Date = new Date()) {
   const parts = new Intl.DateTimeFormat(siteConfig.locale, { timeZone, timeZoneName: "longGeneric" }).formatToParts(at);
   return parts.find((part) => part.type === "timeZoneName")?.value ?? timeZone;
@@ -84,10 +87,10 @@ export function startOfDayIn(instant: Date, timeZone: string) {
   return new Date(new TZDate(local.getFullYear(), local.getMonth(), local.getDate(), timeZone).getTime());
 }
 
-/** "9:30 AM" for a wall-clock time stored as "HH:MM" or "HH:MM:SS" (weekly hours). */
+/** "9:30 am" for a wall-clock time stored as "HH:MM" or "HH:MM:SS" (weekly hours). */
 export function formatWallTime(value: string) {
   const [hours, minutes] = value.split(":").map(Number);
-  return new Intl.DateTimeFormat(siteConfig.locale, { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(
+  return new Intl.DateTimeFormat(siteConfig.locale, { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "UTC" }).format(
     Date.UTC(2024, 0, 1, hours, minutes),
   );
 }
