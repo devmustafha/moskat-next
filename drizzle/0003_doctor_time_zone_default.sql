@@ -1,0 +1,1 @@
+ALTER TABLE "doctors" ALTER COLUMN "time_zone" SET DEFAULT 'America/New_York';
