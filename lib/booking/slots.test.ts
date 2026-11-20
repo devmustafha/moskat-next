@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeWeekdays, findSlot, listSlots, type SlotQuery, type WeeklyRule } from "./slots";
+import { activeWeekdays, findSlot, fitsWeeklyHours, listSlots, type SlotQuery, type WeeklyRule } from "./slots";
 
 const NY = "America/New_York";
 
@@ -105,5 +105,33 @@ describe("activeWeekdays", () => {
   it("lists weekdays with current rules, Monday first", () => {
     const rules = [rule(5, "09:00", "10:00"), rule(1, "09:00", "10:00"), rule(3, "09:00", "10:00", { effectiveUntil: "2026-01-31" })];
     expect(activeWeekdays(rules, "2026-11-15")).toEqual(["Monday", "Friday"]);
+  });
+});
+
+describe("fitsWeeklyHours", () => {
+  const at = (start: string, minutes = 30) => ({ start: new Date(start), end: new Date(new Date(start).getTime() + minutes * 60_000) });
+
+  it("is true only for intervals inside a rule on their local day", () => {
+    const rules = [rule(1, "09:00", "10:00")];
+    // Monday Nov 16 2026, 09:30–10:00 EST.
+    expect(fitsWeeklyHours(at("2026-11-16T14:30:00Z"), rules, NY)).toBe(true);
+    // Runs past the end of the window.
+    expect(fitsWeeklyHours(at("2026-11-16T14:45:00Z"), rules, NY)).toBe(false);
+    // Tuesday.
+    expect(fitsWeeklyHours(at("2026-11-17T14:30:00Z"), rules, NY)).toBe(false);
+  });
+
+  it("respects effective dates", () => {
+    const rules = [rule(1, "09:00", "10:00", { effectiveFrom: "2026-11-17" }), rule(1, "11:00", "12:00", { effectiveUntil: "2026-11-15" })];
+    expect(fitsWeeklyHours(at("2026-11-16T14:00:00Z"), rules, NY)).toBe(false);
+    expect(fitsWeeklyHours(at("2026-11-16T16:00:00Z"), rules, NY)).toBe(false);
+    expect(fitsWeeklyHours(at("2026-11-23T14:00:00Z"), rules, NY)).toBe(true);
+  });
+
+  it("uses local wall-clock time across daylight saving", () => {
+    const rules = [rule(1, "09:00", "10:00")];
+    // Monday March 9 2026 is EDT (UTC−4): 09:00 local is 13:00 UTC.
+    expect(fitsWeeklyHours(at("2026-03-09T13:00:00Z"), rules, NY)).toBe(true);
+    expect(fitsWeeklyHours(at("2026-03-09T14:00:00Z"), rules, NY)).toBe(false);
   });
 });

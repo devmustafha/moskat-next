@@ -110,6 +110,26 @@ export function findSlot(query: SlotQuery, start: Date) {
   return listSlots(query).find((slot) => slot.start.getTime() === start.getTime()) ?? null;
 }
 
+/**
+ * Whether an interval (e.g. an existing booking) lies inside one of the weekly hours that apply on
+ * its local calendar day. Used to warn a doctor about bookings their new hours no longer cover.
+ */
+export function fitsWeeklyHours(interval: Interval, rules: WeeklyRule[], timeZone: string) {
+  const { year, month, day } = localDate(interval.start, timeZone);
+  const date = isoDate(year, month, day);
+  const utcDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const weekday = utcDay === 0 ? 7 : utcDay;
+
+  return rules.some((rule) => {
+    if (rule.weekday !== weekday || date < rule.effectiveFrom) return false;
+    if (rule.effectiveUntil && date > rule.effectiveUntil) return false;
+    const start = localInstant(year, month, day, parseTime(rule.startTime), timeZone);
+    const end = localInstant(year, month, day, parseTime(rule.endTime), timeZone);
+    if (!start || !end) return false;
+    return interval.start >= start && interval.end <= end;
+  });
+}
+
 /** Weekday names (Monday first) that have at least one active rule today or later. */
 export function activeWeekdays(rules: WeeklyRule[], today: string) {
   const names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];

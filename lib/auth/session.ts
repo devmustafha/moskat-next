@@ -102,6 +102,18 @@ export async function requireDoctor(returnTo: string): Promise<DoctorSession> {
   return { ...user, role: "doctor", doctorId };
 }
 
+/**
+ * The signed-in doctor and their linked active profile, looked up on `db` (server actions, which
+ * run on their own connection), or null for anyone else.
+ */
+export async function getDoctorSessionOn(db: Db): Promise<DoctorSession | null> {
+  const user = await getSessionOn(db);
+  if (user?.role !== "doctor") return null;
+  const doctorId = await findLinkedDoctorId(db, user.id);
+  if (doctorId === null) return null;
+  return { ...user, role: "doctor", doctorId };
+}
+
 export type AdminSession = SessionUser & { role: "admin" };
 
 export function isAdmin(user: SessionUser | null): user is AdminSession {

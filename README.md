@@ -156,7 +156,10 @@ are `patient` (public sign-up), `doctor` and `admin` (assigned by an admin).
   Only bookings made while signed in are linked to the account (`patient_user_id`); guest bookings
   are never matched by email, since emails aren't verified. Another patient's booking is a 404.
 - **Doctors** see `/doctor/queue` (today's and upcoming consultations), `/doctor` (weekly hours and
-  time off, read-only) and `/doctor/patients/<id>`. A doctor account must be linked to an active
+  time off) and `/doctor/patients/<id>`. They edit their own weekly hours on `/doctor/hours` (from
+  today; existing bookings are kept and listed if the new hours don't cover them) and their bio,
+  qualifications, languages, interests, experience, fee and length on `/doctor/profile`. Name,
+  specialty, department, photo and time off stay with the hospital. A doctor account must be linked to an active
   doctor profile (`doctors.user_id`); until then it only sees a "not linked yet" page. A patient's
   page needs a non-cancelled booking with that doctor and shows only that doctor's bookings;
   anyone else is a 404.

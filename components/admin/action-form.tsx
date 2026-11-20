@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 export type ActionState = { status: "idle" | "success" | "error"; message?: string };
 
 type ActionFormProps = {
-  /** Server action. Reads its inputs from the form, and checks the admin session itself. */
+  /** Server action. Reads its inputs from the form, and checks the session (admin or doctor) itself. */
   action: (previous: ActionState, formData: FormData) => Promise<ActionState>;
   /** Inputs (including hidden ids) rendered inside the form. */
   children?: ReactNode;
@@ -21,7 +21,7 @@ type ActionFormProps = {
 
 const idle: ActionState = { status: "idle" };
 
-/** A form for one admin action, with its own pending state and result message. */
+/** A form for one admin or doctor action, with its own pending state and result message. */
 export function ActionForm({ action, children, submitLabel, pendingLabel, confirm, variant = "primary", className }: ActionFormProps) {
   const [state, formAction, pending] = useActionState(action, idle);
   const [confirming, setConfirming] = useState(false);

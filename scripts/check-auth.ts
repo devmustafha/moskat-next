@@ -174,7 +174,7 @@ try {
   // Signed out.
   {
     const visitor = new Visitor();
-    for (const path of ["/account", "/account/bookings", "/doctor/queue", "/admin/doctors"]) {
+    for (const path of ["/account", "/account/bookings", "/doctor/queue", "/doctor/hours", "/doctor/profile", "/admin/doctors"]) {
       const r = await page(visitor, path);
       check(`signed out: ${path} → sign-in`, r.status >= 300 && r.status < 400 && r.location === `/sign-in?next=${encodeURIComponent(path)}`, `${r.status} ${r.location}`);
     }
@@ -224,7 +224,7 @@ try {
     check("A: /account/bookings 200 with A's booking only", list.status === 200 && list.body.includes(AX.reference) && !list.body.includes(BY.reference), `${list.status}`);
     let r = await page(visitors.A, `/account/bookings/${BY.id}`);
     check("A: B's booking is 404", r.status === 404, `${r.status}`);
-    for (const path of ["/doctor/queue", "/admin/bookings"]) {
+    for (const path of ["/doctor/queue", "/doctor/hours", "/doctor/profile", "/admin/bookings"]) {
       r = await page(visitors.A, path);
       check(`A: ${path} 403`, r.status === 403, `${r.status}`);
     }
@@ -248,8 +248,14 @@ try {
       r = await page(visitors.X, path);
       check(`X: ${path} 403`, r.status === 403, `${r.status}`);
     }
-    r = await page(visitors.Z, "/doctor/queue");
-    check("Z (unlinked): /doctor/queue → not-linked page", r.status >= 300 && r.status < 400 && r.location === "/doctor/not-linked", `${r.status} ${r.location}`);
+    for (const path of ["/doctor/hours", "/doctor/profile"]) {
+      r = await page(visitors.X, path);
+      check(`X: ${path} 200`, r.status === 200, `${r.status}`);
+    }
+    for (const path of ["/doctor/queue", "/doctor/hours", "/doctor/profile"]) {
+      r = await page(visitors.Z, path);
+      check(`Z (unlinked): ${path} → not-linked page`, r.status >= 300 && r.status < 400 && r.location === "/doctor/not-linked", `${r.status} ${r.location}`);
+    }
     const notLinked = await text(visitors.Z, "/doctor/not-linked");
     check("Z: not-linked page shows no bookings", notLinked.status === 200 && !notLinked.body.includes("CHK-"), `${notLinked.status}`);
   }
@@ -260,7 +266,7 @@ try {
       const r = await page(visitors.Admin, path);
       check(`Admin: ${path} 200`, r.status === 200, `${r.status}`);
     }
-    for (const path of ["/doctor/queue", `/doctor/patients/${ids.A}`]) {
+    for (const path of ["/doctor/queue", "/doctor/hours", "/doctor/profile", `/doctor/patients/${ids.A}`]) {
       const r = await page(visitors.Admin, path);
       check(`Admin: ${path} 403`, r.status === 403, `${r.status}`);
     }

@@ -39,7 +39,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Free slots are calculated from weekly hours, not stored. Weekly hours are wall-clock times in the doctor's `time_zone`; booked instants are `timestamptz`.
 - Money is integer cents plus a currency code, never floats. Bookings copy the fee at booking time.
 - Bookings start `confirmed`. Add `pending` only when payment or staff review exists. Change status only through `canTransition`.
-- The website's DB role (`moskat_app`) can't delete or run DDL: new tables need explicit grants in their migration.
+- The website's DB role (`moskat_app`) can't run DDL and can only delete from `sessions`, `verifications`, `rate_limits` and `doctor_availability` (a doctor replacing their hours deletes rules that never took effect; past rules get `effective_until`). New tables need explicit grants in their migration.
 - Auth tables (`lib/db/auth-schema.ts`) use Better Auth's field names as TypeScript keys; don't rename them. Re-check them against `npx auth@latest generate` when upgrading Better Auth or adding a plugin.
 - `PASSWORD_PEPPER` must never change for an environment that has accounts. The scrypt parameters in `lib/auth/password.ts` may be raised (never lowered); old hashes keep verifying.
 - Every protected page and server action calls a `require*` guard from `lib/auth/session.ts` itself, and data functions take the guard's result, never a user id from params or form data. A check in a layout alone protects nothing (layouts don't re-run on client navigation; actions are separate endpoints).

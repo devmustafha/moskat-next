@@ -1,14 +1,18 @@
 import "server-only";
 import { and, asc, desc, eq, gt, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import type { DoctorSession } from "@/lib/auth/session";
+import { fitsWeeklyHours } from "@/lib/booking/slots";
 import type { Db } from "@/lib/db/client";
 import { consultationBookings as bookings, doctorAvailability, doctors, doctorTimeOff, users } from "@/lib/db/schema";
+import { type HoursWindow, planHoursReplacement, toHHMM } from "@/lib/doctor/hours";
+import type { DoctorProfileInput } from "@/lib/doctor/profile";
 import { isoDateIn, startOfDayIn } from "@/lib/format";
 
 /**
- * A signed-in doctor's own schedule, bookings and patients. Every query is scoped to
- * `doctor.doctorId`, where `doctor` is the result of `requireDoctor`; no route takes a doctor id,
- * so one doctor can never reach another's data.
+ * A signed-in doctor's own schedule, bookings, patients, profile and rates. Every query is scoped
+ * to `doctor.doctorId`, where `doctor` is the result of `requireDoctor` (pages) or
+ * `getDoctorSessionOn` (actions); no route or form takes a doctor id, so one doctor can never
+ * reach or change another's data.
  */
 
 /** Most bookings the queue shows. */
@@ -50,7 +54,7 @@ export type DoctorSchedule = {
   timeOff: { startsAt: Date; endsAt: Date; note: string | null }[];
 };
 
-/** The doctor's profile, weekly hours and upcoming time off (read-only). */
+/** The doctor's profile, weekly hours and upcoming time off, for the schedule overview. */
 export async function getDoctorSchedule(db: Db, doctor: DoctorSession, now = new Date()): Promise<DoctorSchedule> {
   const [profile] = await db
     .select({
@@ -190,4 +194,166 @@ export async function getDoctorPatient(db: Db, doctor: DoctorSession, patientId:
   ]);
   if (!patient) return null;
   return { ...patient, timeZone, bookings: rows };
+}
+
+// Editing their own profile, rates and weekly hours ------------------------------------------
+
+export type DoctorEditable = {
+  name: string;
+  slug: string;
+  specialty: string;
+  bio: string[];
+  qualifications: string[];
+  languages: string[];
+  interests: string[];
+  yearsExperience: number;
+  consultationFeeCents: number;
+  currency: string;
+  consultationMinutes: number;
+  timeZone: string;
+  /** Weekly hours in effect today, by weekday then start time ("HH:MM"). */
+  hours: HoursWindow[];
+  /** Whether hours are scheduled to start after today (saving replaces them). */
+  hasScheduledHours: boolean;
+};
+
+/** The doctor's editable profile, rates and the weekly hours in effect today. */
+export async function getDoctorEditable(db: Db, doctor: DoctorSession, now = new Date()): Promise<DoctorEditable> {
+  const [profile] = await db
+    .select({
+      name: doctors.name,
+      slug: doctors.slug,
+      specialty: doctors.specialty,
+      bio: doctors.bio,
+      qualifications: doctors.qualifications,
+      languages: doctors.languages,
+      interests: doctors.interests,
+      yearsExperience: doctors.yearsExperience,
+      consultationFeeCents: doctors.consultationFeeCents,
+      currency: doctors.currency,
+      consultationMinutes: doctors.consultationMinutes,
+      timeZone: doctors.timeZone,
+    })
+    .from(doctors)
+    .where(eq(doctors.id, doctor.doctorId))
+    .limit(1);
+  if (!profile) throw new Error(`Doctor profile ${doctor.doctorId} not found`);
+
+  const today = isoDateIn(now, profile.timeZone);
+  const rules = await db
+    .select({
+      weekday: doctorAvailability.weekday,
+      startTime: doctorAvailability.startTime,
+      endTime: doctorAvailability.endTime,
+      effectiveFrom: doctorAvailability.effectiveFrom,
+    })
+    .from(doctorAvailability)
+    .where(
+      and(
+        eq(doctorAvailability.doctorId, doctor.doctorId),
+        or(isNull(doctorAvailability.effectiveUntil), gte(doctorAvailability.effectiveUntil, today)),
+      ),
+    )
+    .orderBy(asc(doctorAvailability.weekday), asc(doctorAvailability.startTime));
+
+  return {
+    ...profile,
+    hours: rules
+      .filter((rule) => rule.effectiveFrom <= today)
+      .map((rule) => ({ weekday: rule.weekday, startTime: toHHMM(rule.startTime), endTime: toHHMM(rule.endTime) })),
+    hasScheduledHours: rules.some((rule) => rule.effectiveFrom > today),
+  };
+}
+
+/** Change the doctor's descriptive profile. Name, specialty, department and photo stay with the hospital. */
+export async function updateDoctorProfile(db: Db, doctor: DoctorSession, values: DoctorProfileInput): Promise<boolean> {
+  const updated = await db.update(doctors).set(values).where(eq(doctors.id, doctor.doctorId)).returning({ id: doctors.id });
+  return updated.length === 1;
+}
+
+/** Change the doctor's fee (cents) and consultation length. Existing bookings keep the fee they copied. */
+export async function updateDoctorRates(
+  db: Db,
+  doctor: DoctorSession,
+  values: { consultationFeeCents: number; consultationMinutes: number },
+): Promise<boolean> {
+  const updated = await db.update(doctors).set(values).where(eq(doctors.id, doctor.doctorId)).returning({ id: doctors.id });
+  return updated.length === 1;
+}
+
+/** The doctor's current consultation length, to check that new hours fit at least one consultation. */
+export async function getConsultationMinutes(db: Db, doctor: DoctorSession): Promise<number> {
+  const [row] = await db
+    .select({ minutes: doctors.consultationMinutes })
+    .from(doctors)
+    .where(eq(doctors.id, doctor.doctorId))
+    .limit(1);
+  if (!row) throw new Error(`Doctor profile ${doctor.doctorId} not found`);
+  return row.minutes;
+}
+
+/** Upcoming bookings a change of hours could leave uncovered; more than this is not realistic. */
+const UPCOMING_LIMIT = 500;
+
+export type ReplaceHoursResult = {
+  changed: boolean;
+  timeZone: string;
+  /** Upcoming confirmed bookings outside the new hours. They stay booked. */
+  outside: { reference: string; startsAt: Date }[];
+};
+
+/**
+ * Replace the doctor's weekly hours with `windows`, from today in their time zone: past rules get
+ * an end date (kept as history), rules that never took effect are deleted, and the new ones start
+ * today. Existing bookings are never touched; the ones the new hours don't cover are returned so
+ * the doctor can be told. The doctor row is locked so two saves can't interleave.
+ */
+export async function replaceWeeklyHours(db: Db, doctor: DoctorSession, windows: HoursWindow[], now = new Date()): Promise<ReplaceHoursResult> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ timeZone: doctors.timeZone })
+      .from(doctors)
+      .where(eq(doctors.id, doctor.doctorId))
+      .for("update")
+      .limit(1);
+    if (!row) throw new Error(`Doctor profile ${doctor.doctorId} not found`);
+
+    const ruleFields = {
+      id: doctorAvailability.id,
+      weekday: doctorAvailability.weekday,
+      startTime: doctorAvailability.startTime,
+      endTime: doctorAvailability.endTime,
+      effectiveFrom: doctorAvailability.effectiveFrom,
+      effectiveUntil: doctorAvailability.effectiveUntil,
+    };
+    const mine = eq(doctorAvailability.doctorId, doctor.doctorId);
+    const existing = await tx.select(ruleFields).from(doctorAvailability).where(mine);
+
+    const plan = planHoursReplacement(existing, windows, isoDateIn(now, row.timeZone));
+    if (!plan.changed) return { changed: false, timeZone: row.timeZone, outside: [] };
+
+    for (const { id, effectiveUntil } of plan.end) {
+      await tx.update(doctorAvailability).set({ effectiveUntil }).where(and(mine, eq(doctorAvailability.id, id)));
+    }
+    if (plan.remove.length > 0) {
+      await tx.delete(doctorAvailability).where(and(mine, inArray(doctorAvailability.id, plan.remove)));
+    }
+    if (plan.insert.length > 0) {
+      await tx.insert(doctorAvailability).values(plan.insert.map((rule) => ({ ...rule, doctorId: doctor.doctorId })));
+    }
+
+    // One after the other: a transaction is a single connection.
+    const rules = await tx.select(ruleFields).from(doctorAvailability).where(mine);
+    const upcoming = await tx
+      .select({ reference: bookings.reference, startsAt: bookings.startsAt, endsAt: bookings.endsAt })
+      .from(bookings)
+      .where(and(eq(bookings.doctorId, doctor.doctorId), eq(bookings.status, "confirmed"), gt(bookings.endsAt, now)))
+      .orderBy(asc(bookings.startsAt))
+      .limit(UPCOMING_LIMIT);
+    const outside = upcoming
+      .filter((booking) => !fitsWeeklyHours({ start: booking.startsAt, end: booking.endsAt }, rules, row.timeZone))
+      .map(({ reference, startsAt }) => ({ reference, startsAt }));
+
+    return { changed: true, timeZone: row.timeZone, outside };
+  });
 }

@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** The signed-in doctor's weekly video hours and time off. Read-only: the hospital manages them. */
+/** The signed-in doctor's weekly video hours and time off at a glance. Hours are edited on /doctor/hours; time off by the hospital. */
 export default async function DoctorSchedulePage() {
   const doctor = await requireDoctor("/doctor");
   const now = new Date();
@@ -36,7 +36,15 @@ export default async function DoctorSchedulePage() {
             <Link href={`/doctors/${profile.slug}`} className="link">
               {profile.name}
             </Link>
-            , in {formatTimeZoneName(profile.timeZone, now)}. To change them, contact the hospital.
+            , in {formatTimeZoneName(profile.timeZone, now)}. Change your hours and rates under{" "}
+            <Link href="/doctor/hours" className="link">
+              Weekly hours
+            </Link>{" "}
+            and{" "}
+            <Link href="/doctor/profile" className="link">
+              Profile and rates
+            </Link>
+            ; for time off, contact the hospital.
           </>
         }
       />
