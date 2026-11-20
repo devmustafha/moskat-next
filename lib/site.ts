@@ -30,6 +30,20 @@ export const siteConfig = {
     refundBusinessDays: 10,
   },
 
+  /** Video calls (Agora). Tokens are only issued inside this window around the appointment. */
+  consultation: {
+    /** The call opens this long before the start. */
+    joinOpensMinutesBefore: 10,
+    /** A first join is refused this long after the start (someone who joined can still reconnect). */
+    lateJoinMinutesAfterStart: 30,
+    /** Hard stop: no token, renewal or reconnect after the scheduled end plus this. */
+    graceMinutesAfterEnd: 15,
+    /** Lifetime of each Agora token (and its privileges); the call renews it before it expires. */
+    tokenTtlSeconds: 600,
+    /** Token requests (joins and renewals) per minute per signed-in user. */
+    tokenRequestsPerMinute: 10,
+  },
+
   auth: {
     /** Signed out after this long without activity (Better Auth `session.expiresIn`). */
     idleTimeoutHours: 2,

@@ -9,6 +9,14 @@ describe("canTransition", () => {
     expect(canTransition("confirmed", "completed")).toBe(true);
     expect(canTransition("confirmed", "no_show")).toBe(true);
     expect(canTransition("completed", "no_show")).toBe(true);
+    expect(canTransition("confirmed", "in_progress")).toBe(true);
+    expect(canTransition("in_progress", "completed")).toBe(true);
+  });
+
+  it("only lets a call in progress complete", () => {
+    expect(canTransition("in_progress", "cancelled")).toBe(false);
+    expect(canTransition("in_progress", "no_show")).toBe(false);
+    expect(canTransition("pending_payment", "in_progress")).toBe(false);
   });
 
   it("never skips payment or reopens a booking", () => {

@@ -47,6 +47,7 @@ app/                     Routes (App Router)
   api/auth/              Better Auth endpoint
   api/webhooks/paystack/ Paystack webhook (payment confirmation)
   payments/paystack/     Where Paystack returns the patient after checkout
+  api/consultations/     Video call tokens (Agora), for the booking's patient and doctor only
   api/cron/maintenance/  The daily job (Vercel Cron)
   api/health/            GET /api/health health check
   styleguide/            Design system reference (dev only)
@@ -62,6 +63,7 @@ lib/
   auth/                  Better Auth config, session guards, password hashing, policy
   booking/               Slots, create/cancel, tokens, statuses, emails, rate limit
   payments/              Paystack client, webhook signature, checkout, settlement, refunds
+  consultation/          Video call access rules, Agora tokens, channels
   account/ doctor/ admin/   Data access for each signed-in area
   email/resend.ts        Sends email through Resend
   data/                  Static content: pricing, FAQs, articles, trust signals
@@ -119,6 +121,7 @@ migrations open their own connection (`lib/db/client.ts`).
    | `RESEND_API_KEY` | Resend API key |
    | `CRON_SECRET` | Random string; Vercel Cron sends it to the daily job |
    | `PAYSTACK_SECRET_KEY` | `sk_test_…` for Preview, `sk_live_…` for Production (see Payments) |
+   | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` | Agora project with App Certificate enabled (see Video consultations) |
 
 5. **Email.** Verify the sending domain in Resend and set the sender in `siteConfig.email.from`.
    Without `RESEND_API_KEY`, bookings still work and the confirmation page shows the manage link.
@@ -224,6 +227,30 @@ Checks: `npx tsx scripts/check-payments.ts` settles payments concurrently agains
 with Paystack stubbed (idempotency, mismatches, refunds; dev databases only), and
 `npx tsx scripts/check-double-booking.ts` races 20 bookings for one slot.
 
+### Video consultations (Agora)
+
+Calls use Agora RTC with token authentication. Tokens are built only on the server
+(`lib/consultation/agora.ts`, `agora-token`, Node.js runtime) by
+`POST /api/consultations/<bookingId>/token`, which the call page asks for when joining and again
+before each token expires. Every request is checked on the server:
+
+- **Who:** a signed-in patient whose account made the booking, or the signed-in doctor whose linked
+  profile it's with. Anyone else gets 404, as if the booking didn't exist; signed out gets 401.
+  Cross-origin requests get 403. Limited to 10 requests a minute per user.
+- **Paid:** the booking is `confirmed` (or `in_progress`) with a succeeded payment, and its call
+  hasn't ended. Bookings from before online payment can't use video.
+- **When:** from 10 minutes before the start; a first join until 30 minutes after the start;
+  renewals and reconnects by someone who already joined until 15 minutes after the scheduled end
+  (`siteConfig.consultation`).
+
+Each booking's call gets a random 32-hex-character channel name (`consultation_calls`). The doctor
+always joins as uid 1 and the patient as uid 2, baked into the token. Tokens last 10 minutes
+(never past the hard stop), with privileges expiring at the same time. There's no recording.
+
+Setup: create an Agora project with **App Certificate enabled** (one for Preview and one for
+Production), and set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Without them the endpoint answers
+503. Requests must come from the site's own origin (`BETTER_AUTH_URL`, or the deployment's URL).
+
 ### Day-to-day
 
 - **Edit doctors, hours and time off** with `npm run db:studio` (owner connection). Weekly hours
@@ -232,6 +259,7 @@ with Paystack stubbed (idempotency, mismatches, refunds; dev databases only), an
 - **Booking statuses:** `pending_payment` → `confirmed` (Paystack payment verified) or `cancelled`
   (patient, staff, or `system` when the 30-minute hold lapses). `confirmed` → `cancelled` (patient
   online until 2 h before, or staff; a paid booking is flagged for refund), `completed`
-  (automatically 24 h after the end) or `no_show` (staff).
+  (automatically 24 h after the end) or `no_show` (staff). `in_progress` (reserved for when both
+  have joined the video call) → `completed`.
 - **Patient data:** only name, email and optional phone are stored. The daily job clears them
   90 days after the appointment or cancellation (`siteConfig.booking.piiRetentionDays`).

@@ -108,6 +108,28 @@ export async function getDoctorSessionOn(db: Db): Promise<DoctorSession | null> 
   return { ...user, role: "doctor", doctorId };
 }
 
+/**
+ * Someone who can take part in a video consultation: a signed-in patient, or a signed-in doctor
+ * linked to an active profile. Consultation data functions take this and only ever look up the
+ * caller's own bookings (the patient's account, or the doctor's profile).
+ */
+export type ConsultationActor = PatientSession | DoctorSession;
+
+/**
+ * For route handlers (which answer with JSON, not redirects): the signed-in user, looked up on
+ * `db`, and the consultation actor they are (null for admins, unlinked doctors and anyone else).
+ * `user` is null when signed out.
+ */
+export async function getConsultationActorOn(db: Db): Promise<{ user: SessionUser | null; actor: ConsultationActor | null }> {
+  const user = await getSessionOn(db);
+  if (isPatient(user)) return { user, actor: user };
+  if (user?.role === "doctor") {
+    const doctorId = await findLinkedDoctorId(db, user.id);
+    return { user, actor: doctorId === null ? null : { ...user, role: "doctor", doctorId } };
+  }
+  return { user, actor: null };
+}
+
 export type AdminSession = SessionUser & { role: "admin" };
 
 export function isAdmin(user: SessionUser | null): user is AdminSession {

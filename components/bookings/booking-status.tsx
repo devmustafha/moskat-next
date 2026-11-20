@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 const statuses = {
   pending_payment: { label: "Awaiting payment", tone: "bg-surface text-ink" },
   confirmed: { label: "Confirmed", tone: "bg-brand-50 text-brand-700" },
+  in_progress: { label: "In progress", tone: "bg-brand-600 text-white" },
   completed: { label: "Completed", tone: "bg-surface text-ink" },
   cancelled: { label: "Cancelled", tone: "bg-alert-soft text-alert" },
   no_show: { label: "Missed", tone: "bg-surface text-ink" },

@@ -149,7 +149,7 @@ export const doctorTimeOff = pgTable(
 
 // New enum values are appended: Postgres adds them with ALTER TYPE … ADD VALUE, and a value added
 // that way can't be used in the same transaction, so no migration may reference one it adds.
-export const bookingStatus = pgEnum("booking_status", ["confirmed", "cancelled", "completed", "no_show", "pending_payment"]);
+export const bookingStatus = pgEnum("booking_status", ["confirmed", "cancelled", "completed", "no_show", "pending_payment", "in_progress"]);
 /** `system`: an unpaid hold that expired. */
 export const cancelledBy = pgEnum("cancelled_by", ["patient", "hospital", "system"]);
 
@@ -262,6 +262,42 @@ export const payments = pgTable(
   ],
 );
 
+/** Who ended a video call: the doctor ("End for both"), or the system at the hard stop. */
+export const consultationEndedBy = pgEnum("consultation_ended_by", ["doctor", "system"]);
+
+/**
+ * The video call for a paid booking (Agora RTC), created when the first participant asks for a
+ * token. One per booking. Holds no patient details and nothing said in the call: there is no
+ * recording.
+ */
+export const consultationCalls = pgTable(
+  "consultation_calls",
+  {
+    bookingId: uuid("booking_id")
+      .primaryKey()
+      .references(() => consultationBookings.id, { onDelete: "restrict" }),
+    /** Random Agora channel name (32 hex characters), never derived from the booking id. */
+    channelName: text("channel_name").notNull().unique(),
+    /** When each participant first joined (their first token was issued). */
+    doctorJoinedAt: timestamp("doctor_joined_at", { withTimezone: true }),
+    patientJoinedAt: timestamp("patient_joined_at", { withTimezone: true }),
+    /** When each participant last left. */
+    doctorLeftAt: timestamp("doctor_left_at", { withTimezone: true }),
+    patientLeftAt: timestamp("patient_left_at", { withTimezone: true }),
+    /** When both were first in the call together. */
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endedBy: consultationEndedBy("ended_by"),
+    durationSeconds: integer("duration_seconds"),
+    ...timestamps,
+  },
+  (table) => [
+    check("consultation_calls_channel_check", sql`${table.channelName} ~ '^[0-9a-f]{32}$'`),
+    check("consultation_calls_ended_check", sql`(${table.endedAt} is null) = (${table.endedBy} is null)`),
+    check("consultation_calls_duration_check", sql`${table.durationSeconds} is null or ${table.durationSeconds} >= 0`),
+  ],
+);
+
 export type DepartmentRow = typeof departments.$inferSelect;
 export type DoctorRow = typeof doctors.$inferSelect;
 export type AvailabilityRow = typeof doctorAvailability.$inferSelect;
@@ -270,3 +306,4 @@ export type BookingRow = typeof consultationBookings.$inferSelect;
 export type BookingStatus = (typeof bookingStatus.enumValues)[number];
 export type PaymentRow = typeof payments.$inferSelect;
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number];
+export type ConsultationCallRow = typeof consultationCalls.$inferSelect;

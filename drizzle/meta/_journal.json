@@ -78,6 +78,20 @@
       "when": 1795164052136,
       "tag": "0010_payments_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795172255760,
+      "tag": "0011_consultation_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795172257184,
+      "tag": "0012_consultation_calls_grants",
+      "breakpoints": true
     }
   ]
 }

@@ -24,7 +24,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Statuses that give a doctor access to a patient's page: a booking that happened or is still
  * due. A cancelled booking grants nothing.
  */
-const accessGrantingStatuses = ["confirmed", "completed", "no_show"] as const;
+const accessGrantingStatuses = ["confirmed", "in_progress", "completed", "no_show"] as const;
 
 /** The active doctor profile linked to a doctor account, or null. Used by `requireDoctor` only. */
 export async function findLinkedDoctorId(db: Db, userId: string): Promise<number | null> {
@@ -357,7 +357,7 @@ export async function replaceWeeklyHours(db: Db, doctor: DoctorSession, windows:
       .select({ reference: bookings.reference, startsAt: bookings.startsAt, endsAt: bookings.endsAt })
       .from(bookings)
       // Unpaid holds count too: they may still be paid and confirmed.
-      .where(and(eq(bookings.doctorId, doctor.doctorId), inArray(bookings.status, ["pending_payment", "confirmed"]), gt(bookings.endsAt, now)))
+      .where(and(eq(bookings.doctorId, doctor.doctorId), inArray(bookings.status, ["pending_payment", "confirmed", "in_progress"]), gt(bookings.endsAt, now)))
       .orderBy(asc(bookings.startsAt))
       .limit(UPCOMING_LIMIT);
     const outside = upcoming
