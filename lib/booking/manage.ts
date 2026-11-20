@@ -1,6 +1,7 @@
-import { and, eq, type SQL } from "drizzle-orm";
+import { and, asc, eq, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db/client";
-import { consultationBookings, doctors } from "@/lib/db/schema";
+import { consultationBookings, doctors, payments } from "@/lib/db/schema";
+import { bookingWasPaid, flagPaymentForRefund } from "@/lib/payments/refunds";
 import { siteConfig } from "@/lib/site";
 import { canTransition } from "./status";
 import { hashToken, isWellFormedToken } from "./tokens";
@@ -18,6 +19,11 @@ export type ManagedBooking = {
   patientName: string | null;
   patientEmail: string | null;
   cancelledAt: Date | null;
+  cancelledBy: (typeof consultationBookings.$inferSelect)["cancelledBy"];
+  /** While `pending_payment`: when the unpaid hold lapses. */
+  paymentExpiresAt: Date | null;
+  /** Whether money was taken for this booking (even if it was later cancelled or refunded). */
+  paid: boolean;
   doctor: { slug: string; name: string; specialty: string; timeZone: string };
 };
 
@@ -33,6 +39,9 @@ const managedBookingFields = {
   patientName: consultationBookings.patientName,
   patientEmail: consultationBookings.patientEmail,
   cancelledAt: consultationBookings.cancelledAt,
+  cancelledBy: consultationBookings.cancelledBy,
+  paymentExpiresAt: consultationBookings.paymentExpiresAt,
+  paid: bookingWasPaid(consultationBookings.id),
   doctor: { slug: doctors.slug, name: doctors.name, specialty: doctors.specialty, timeZone: doctors.timeZone },
 };
 
@@ -53,18 +62,52 @@ export async function findBookingByToken(db: Db, token: string): Promise<Managed
   return row ?? null;
 }
 
-/** Whether the patient can still cancel online (confirmed, and before the cut-off). */
+/** Whether the patient can still cancel online (unpaid or confirmed, and before the cut-off). */
 export function canPatientCancel(booking: Pick<ManagedBooking, "status" | "startsAt">, now = new Date()) {
   const cutoff = booking.startsAt.getTime() - siteConfig.booking.cancelUntilHours * HOUR;
   return canTransition(booking.status, "cancelled") && now.getTime() < cutoff;
 }
 
-export type CancelResult = { ok: true; booking: ManagedBooking } | { ok: false; reason: "not_found" | "not_cancellable" };
+export type CancelResult =
+  /**
+   * `refundDue`: the booking had been paid; its payment is now flagged for a refund.
+   * `previousStatus`: what it was before (an unpaid hold the patient abandons needs no email).
+   */
+  | { ok: true; booking: ManagedBooking; refundDue: boolean; previousStatus: ManagedBooking["status"] }
+  | { ok: false; reason: "not_found" | "not_cancellable" };
 
 /** Cancel through the manage link. Frees the slot immediately. */
 export async function cancelBookingByToken(db: Db, token: string, now = new Date()): Promise<CancelResult> {
   const booking = await findBookingByToken(db, token);
   return cancelAsPatient(db, booking, now);
+}
+
+/**
+ * Cancel a booking and, if it was paid, flag the payment for a refund, in one transaction.
+ * Only if the status is still `from`, so a concurrent change isn't overwritten. `condition` adds
+ * to the UPDATE (e.g. ownership). Returns null if nothing was cancelled.
+ *
+ * Locks the booking's payments first, then the booking: the same order as settlePayment
+ * (lib/payments/settle.ts), so a cancel racing a payment can't deadlock.
+ */
+export async function cancelBooking(
+  db: Db,
+  bookingId: string,
+  from: ManagedBooking["status"],
+  set: { cancelledAt: Date; cancelledBy: "patient" | "hospital" },
+  condition?: SQL,
+): Promise<{ refundDue: boolean } | null> {
+  if (!canTransition(from, "cancelled")) return null;
+  return db.transaction(async (tx) => {
+    await tx.select({ id: payments.id }).from(payments).where(eq(payments.bookingId, bookingId)).orderBy(asc(payments.id)).for("update");
+    const updated = await tx
+      .update(consultationBookings)
+      .set({ status: "cancelled", ...set })
+      .where(and(eq(consultationBookings.id, bookingId), eq(consultationBookings.status, from), condition))
+      .returning({ id: consultationBookings.id });
+    if (updated.length === 0) return null;
+    return { refundDue: await flagPaymentForRefund(tx, bookingId) };
+  });
 }
 
 /**
@@ -75,13 +118,12 @@ export async function cancelAsPatient(db: Db, booking: ManagedBooking | null, no
   if (!booking) return { ok: false, reason: "not_found" };
   if (!canPatientCancel(booking, now)) return { ok: false, reason: "not_cancellable" };
 
-  // Only update if it's still confirmed, so a concurrent change isn't overwritten.
-  const updated = await db
-    .update(consultationBookings)
-    .set({ status: "cancelled", cancelledAt: now, cancelledBy: "patient" })
-    .where(and(eq(consultationBookings.id, booking.id), eq(consultationBookings.status, "confirmed"), owner))
-    .returning({ id: consultationBookings.id });
-
-  if (updated.length === 0) return { ok: false, reason: "not_cancellable" };
-  return { ok: true, booking: { ...booking, status: "cancelled", cancelledAt: now } };
+  const cancelled = await cancelBooking(db, booking.id, booking.status, { cancelledAt: now, cancelledBy: "patient" }, owner);
+  if (!cancelled) return { ok: false, reason: "not_cancellable" };
+  return {
+    ok: true,
+    booking: { ...booking, status: "cancelled", cancelledAt: now, cancelledBy: "patient" },
+    refundDue: cancelled.refundDue,
+    previousStatus: booking.status,
+  };
 }

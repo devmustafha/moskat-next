@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, lt, ne, or } from "drizzle-orm";
 import type { Db } from "@/lib/db/client";
 import { consultationBookings, doctorAvailability, doctors, doctorTimeOff } from "@/lib/db/schema";
 import { siteConfig } from "@/lib/site";
@@ -66,6 +66,8 @@ export async function loadSlotQuery(db: Db, doctor: BookableDoctor, now: Date): 
         and(
           eq(consultationBookings.doctorId, doctor.id),
           ne(consultationBookings.status, "cancelled"),
+          // A lapsed unpaid hold no longer holds its slot (see isLiveHold in ./status).
+          or(ne(consultationBookings.status, "pending_payment"), gt(consultationBookings.paymentExpiresAt, now)),
           lt(consultationBookings.startsAt, windowEnd),
           gt(consultationBookings.endsAt, now),
         ),

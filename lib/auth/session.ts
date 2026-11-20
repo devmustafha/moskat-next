@@ -7,6 +7,7 @@ import type { Db } from "@/lib/db/client";
 import { getDb, runWithDb } from "@/lib/db/server";
 import { type Auth, type AuthConfig, createAuth } from "./auth";
 import { findLinkedDoctorId } from "@/lib/doctor/queries";
+import { siteOrigin } from "@/lib/origin";
 import { isPastAbsoluteLifetime } from "./policy";
 
 /**
@@ -14,13 +15,6 @@ import { isPastAbsoluteLifetime } from "./policy";
  * `require*` guards itself: layouts don't re-run on client-side navigation, and server actions
  * are separate endpoints, so a check in a layout alone protects nothing.
  */
-
-/** The site's public origin: BETTER_AUTH_URL, else this Vercel deployment's URL, else local dev. */
-function siteOrigin() {
-  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
-}
 
 function authConfig(): AuthConfig {
   const secret = process.env.BETTER_AUTH_SECRET;

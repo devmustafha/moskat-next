@@ -27,14 +27,18 @@ export async function cancelBookingAction(token: string, _previous: CancelState)
     };
   }
 
-  const { booking } = result;
-  if (booking.patientName && booking.patientEmail) {
+  const { booking, refundDue, previousStatus } = result;
+  if (booking.patientName && booking.patientEmail && previousStatus !== "pending_payment") {
     try {
-      await sendCancellationEmail(createMailer(), { ...booking, patientName: booking.patientName, patientEmail: booking.patientEmail });
+      await sendCancellationEmail(
+        createMailer(),
+        { ...booking, patientName: booking.patientName, patientEmail: booking.patientEmail },
+        { refundDue },
+      );
     } catch (error) {
       console.error(`Cancellation email failed for booking ${booking.id}: ${safeErrorSummary(error)}`);
     }
   }
 
-  redirect(`/bookings/${token}?cancelled=1`);
+  redirect(`/bookings/${token}?cancelled=${refundDue ? "refund" : "1"}`);
 }

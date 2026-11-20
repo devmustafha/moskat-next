@@ -23,7 +23,9 @@ export async function GET(request: Request) {
   try {
     const result = await runWithDb((db) => runMaintenance(db, new Date()));
     // Counts only: never log patient details.
-    console.log(`maintenance: completed=${result.completed} purged=${result.purged} expiredSessions=${result.expiredSessions}`);
+    console.log(
+      `maintenance: expiredHolds=${result.expiredHolds} completed=${result.completed} purged=${result.purged} expiredSessions=${result.expiredSessions}`,
+    );
     return Response.json(result);
   } catch (error) {
     console.error(`maintenance failed: ${safeErrorSummary(error)}`);

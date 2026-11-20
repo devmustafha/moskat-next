@@ -2,6 +2,7 @@ import type { BookingStatus } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
 const statuses = {
+  pending_payment: { label: "Awaiting payment", tone: "bg-surface text-ink" },
   confirmed: { label: "Confirmed", tone: "bg-brand-50 text-brand-700" },
   completed: { label: "Completed", tone: "bg-surface text-ink" },
   cancelled: { label: "Cancelled", tone: "bg-alert-soft text-alert" },

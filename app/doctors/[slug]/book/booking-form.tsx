@@ -10,7 +10,7 @@ import { type BookingFormState, createBookingAction } from "./actions";
 export type SlotDay = {
   /** Calendar date in the doctor's time zone (YYYY-MM-DD). */
   key: string;
-  /** "Monday, November 23" */
+  /** "Monday, 23 November" */
   label: string;
   /** "Mon" and "23" for the compact day picker. */
   weekday: string;
@@ -25,10 +25,10 @@ type BookingFormProps = {
   /** "₦25,000 for 30 minutes", repeated next to the confirm button. */
   feeLabel: string;
   days: SlotDay[];
-  /** A signed-in patient's name and email, to prefill the form. The booking is linked to their account. */
-  patient?: { name: string; email: string } | null;
-  /** Sign-in link that comes back here; null when someone other than a patient is signed in (they book as guests). */
-  signInHref: string | null;
+  /** The signed-in patient. The booking is linked to their account; the email is their account email. */
+  patient: { name: string; email: string };
+  /** How long the slot is held while the patient pays. */
+  holdMinutes: number;
 };
 
 const initialState: BookingFormState = { status: "idle" };
@@ -42,13 +42,13 @@ function FieldError({ id, errors }: { id: string; errors?: string[] }) {
   );
 }
 
-export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabel, days, patient, signInHref }: BookingFormProps) {
+export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabel, days, patient, holdMinutes }: BookingFormProps) {
   const [state, formAction, pending] = useActionState(createBookingAction, initialState);
   const [removed, setRemoved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [dayKey, setDayKey] = useState(days[0]?.key ?? "");
   const [viewerTimeZone, setViewerTimeZone] = useState<string | null>(null);
-  const ids = { name: useId(), email: useId(), phone: useId(), consent: useId(), slots: useId(), error: useId() };
+  const ids = { name: useId(), phone: useId(), consent: useId(), slots: useId(), error: useId() };
 
   useEffect(() => setViewerTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone), []);
 
@@ -168,17 +168,8 @@ export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabe
           will ask during the call.
         </p>
         <p className="text-small text-ink-muted">
-          {patient ? (
-            <>This booking will also appear in your account.</>
-          ) : signInHref && (
-            <>
-              Have an account?{" "}
-              <Link href={signInHref} className="link text-ink">
-                Sign in
-              </Link>{" "}
-              to see this booking there too. You don’t need one to book.
-            </>
-          )}
+          This booking is linked to your account. We’ll email your confirmation and Paystack receipt to{" "}
+          <strong className="font-medium text-ink">{patient.email}</strong>.
         </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -188,7 +179,7 @@ export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabe
               id={ids.name}
               name="name"
               autoComplete="name"
-              defaultValue={state.values?.name ?? patient?.name}
+              defaultValue={state.values?.name ?? patient.name}
               required
               maxLength={120}
               aria-invalid={Boolean(errors.name)}
@@ -197,23 +188,7 @@ export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabe
             />
             <FieldError id={`${ids.name}-error`} errors={errors.name} />
           </label>
-          <label htmlFor={ids.email} className="grid gap-2 text-caption font-medium">
-            Email
-            <input
-              id={ids.email}
-              name="email"
-              type="email"
-              autoComplete="email"
-              defaultValue={state.values?.email ?? patient?.email}
-              required
-              maxLength={254}
-              aria-invalid={Boolean(errors.email)}
-              aria-describedby={errors.email ? `${ids.email}-error` : undefined}
-              className={cn("field", errors.email && "border-alert")}
-            />
-            <FieldError id={`${ids.email}-error`} errors={errors.email} />
-          </label>
-          <label htmlFor={ids.phone} className="grid gap-2 text-caption font-medium sm:col-span-2 sm:max-w-[calc(50%-0.5rem)]">
+          <label htmlFor={ids.phone} className="grid gap-2 text-caption font-medium">
             <span>
               Phone <span className="font-normal text-ink-muted">(optional, in case the video call drops)</span>
             </span>
@@ -255,7 +230,8 @@ export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabe
             <Link href="/privacy" className="link" target="_blank">
               privacy notice
             </Link>{" "}
-            and agree to {siteConfig.name} using these details to arrange my consultation.
+            and agree to {siteConfig.name} using these details to arrange my video consultation, with payment
+            processed by Paystack.
             <FieldError id={`${ids.consent}-error`} errors={errors.consent} />
           </span>
         </label>
@@ -268,12 +244,12 @@ export function BookingForm({ doctorSlug, doctorTimeZone, timeZoneLabel, feeLabe
           </p>
         )}
         <Button type="submit" disabled={pending} className="justify-between sm:w-fit sm:justify-center">
-          {pending ? "Booking…" : "Confirm booking"}
+          {pending ? "Starting payment…" : "Continue to payment"}
         </Button>
         <p className="text-caption text-ink-muted">
-          Fee: <strong className="font-medium text-ink">{feeLabel}</strong>. Your booking is confirmed straight away
-          and we’ll email you a link to view or cancel it. Our patient team will send payment details before your
-          appointment.
+          Fee: <strong className="font-medium text-ink">{feeLabel}</strong>. You’ll pay securely on Paystack’s page. We
+          hold this time for {holdMinutes} minutes while you pay, and your booking is confirmed as soon as your payment
+          goes through.
         </p>
       </div>
     </form>

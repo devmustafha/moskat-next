@@ -20,10 +20,10 @@ function ownedBy(patient: PatientSession) {
   return eq(bookings.patientUserId, patient.id);
 }
 
-/** Appointments that haven't ended yet, soonest first, including ones the patient cancelled. */
+/** Appointments that haven't ended yet, soonest first, including unpaid and cancelled ones. */
 export function listUpcomingBookings(db: Db, patient: PatientSession, now = new Date()): Promise<ManagedBooking[]> {
   return selectManagedBookings(db)
-    .where(and(ownedBy(patient), gt(bookings.endsAt, now), inArray(bookings.status, ["confirmed", "cancelled"])))
+    .where(and(ownedBy(patient), gt(bookings.endsAt, now), inArray(bookings.status, ["pending_payment", "confirmed", "cancelled"])))
     .orderBy(asc(bookings.startsAt))
     .limit(LIST_LIMIT);
 }

@@ -24,6 +24,10 @@ export const siteConfig = {
     piiRetentionDays: 90,
     /** Booking attempts per minute per visitor (IP address). */
     attemptsPerMinute: 5,
+    /** An unpaid booking holds its slot this long while the patient pays; then the slot is released. */
+    paymentHoldMinutes: 30,
+    /** What patients are told about refunds of cancelled paid bookings. */
+    refundBusinessDays: 10,
   },
 
   auth: {

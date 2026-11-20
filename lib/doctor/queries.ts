@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gt, gte, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, notInArray, or } from "drizzle-orm";
 import type { DoctorSession } from "@/lib/auth/session";
 import { fitsWeeklyHours } from "@/lib/booking/slots";
 import type { Db } from "@/lib/db/client";
@@ -131,13 +131,22 @@ const queueFields = {
   patientUserId: bookings.patientUserId,
 };
 
-/** Today's and upcoming consultations (not cancelled), earliest first, with the doctor's time zone. */
+/**
+ * Today's and upcoming consultations, earliest first, with the doctor's time zone. Cancelled
+ * bookings and unpaid holds (`pending_payment`, not booked until paid) aren't shown.
+ */
 export async function listDoctorQueue(db: Db, doctor: DoctorSession, now = new Date()) {
   const timeZone = await doctorTimeZone(db, doctor);
   const rows: QueueBooking[] = await db
     .select(queueFields)
     .from(bookings)
-    .where(and(eq(bookings.doctorId, doctor.doctorId), gte(bookings.startsAt, startOfDayIn(now, timeZone)), ne(bookings.status, "cancelled")))
+    .where(
+      and(
+        eq(bookings.doctorId, doctor.doctorId),
+        gte(bookings.startsAt, startOfDayIn(now, timeZone)),
+        notInArray(bookings.status, ["cancelled", "pending_payment"]),
+      ),
+    )
     .orderBy(asc(bookings.startsAt))
     .limit(QUEUE_LIMIT);
   return { timeZone, bookings: rows };
@@ -347,7 +356,8 @@ export async function replaceWeeklyHours(db: Db, doctor: DoctorSession, windows:
     const upcoming = await tx
       .select({ reference: bookings.reference, startsAt: bookings.startsAt, endsAt: bookings.endsAt })
       .from(bookings)
-      .where(and(eq(bookings.doctorId, doctor.doctorId), eq(bookings.status, "confirmed"), gt(bookings.endsAt, now)))
+      // Unpaid holds count too: they may still be paid and confirmed.
+      .where(and(eq(bookings.doctorId, doctor.doctorId), inArray(bookings.status, ["pending_payment", "confirmed"]), gt(bookings.endsAt, now)))
       .orderBy(asc(bookings.startsAt))
       .limit(UPCOMING_LIMIT);
     const outside = upcoming

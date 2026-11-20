@@ -83,8 +83,8 @@ export const healthChecks: HealthCheck[] = [
 
 export const paymentNotes = [
   {
-    title: "Pay before your video visit",
-    text: "Bookings are confirmed straight away. Our patient team sends payment details before your appointment, and if your doctor needs to cancel, you aren’t charged.",
+    title: "Pay online when you book",
+    text: "Pay securely online through Paystack, and your video consultation is confirmed straight away. Cancel up to 2 hours before for a full refund, and if your doctor needs to cancel, we refund you in full.",
   },
   {
     title: "Insurance",

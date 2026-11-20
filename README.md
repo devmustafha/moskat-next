@@ -45,6 +45,8 @@ app/                     Routes (App Router)
   admin/                 Bookings, doctors, pricing and departments
   pricing/ contact/ faq/ privacy/ articles/   Content pages
   api/auth/              Better Auth endpoint
+  api/webhooks/paystack/ Paystack webhook (payment confirmation)
+  payments/paystack/     Where Paystack returns the patient after checkout
   api/cron/maintenance/  The daily job (Vercel Cron)
   api/health/            GET /api/health health check
   styleguide/            Design system reference (dev only)
@@ -59,6 +61,7 @@ lib/
   db/                    Drizzle schema, queries, pooled server client, seed data, daily job
   auth/                  Better Auth config, session guards, password hashing, policy
   booking/               Slots, create/cancel, tokens, statuses, emails, rate limit
+  payments/              Paystack client, webhook signature, checkout, settlement, refunds
   account/ doctor/ admin/   Data access for each signed-in area
   email/resend.ts        Sends email through Resend
   data/                  Static content: pricing, FAQs, articles, trust signals
@@ -115,6 +118,7 @@ migrations open their own connection (`lib/db/client.ts`).
    | `BETTER_AUTH_URL` | The site's public origin (Production); previews fall back to their own URL |
    | `RESEND_API_KEY` | Resend API key |
    | `CRON_SECRET` | Random string; Vercel Cron sends it to the daily job |
+   | `PAYSTACK_SECRET_KEY` | `sk_test_…` for Preview, `sk_live_…` for Production (see Payments) |
 
 5. **Email.** Verify the sending domain in Resend and set the sender in `siteConfig.email.from`.
    Without `RESEND_API_KEY`, bookings still work and the confirmation page shows the manage link.
@@ -187,12 +191,47 @@ are `patient` (public sign-up), `doctor` and `admin` (assigned by an admin).
   for a minute. It refuses to run against production (`DATABASE_URL_MAIN`, or `PRODUCTION_URL`
   if set). Run it after any auth or access change.
 
+### Payments (Paystack)
+
+Video consultations are paid online in NGN (amounts are integer kobo) through Paystack's redirect
+checkout. Only signed-in patients can book.
+
+1. **Book.** The booking is created as `pending_payment` and holds its slot for
+   `siteConfig.booking.paymentHoldMinutes` (30). A `payments` row gets our random reference
+   (`MSK-PAY-…`), Paystack's `/transaction/initialize` is called with the amount, the account email and
+   only the booking id as metadata, and the patient is sent to Paystack.
+2. **Confirm.** A booking becomes `confirmed` only from Paystack's `/transaction/verify` result, fetched
+   by our server, when its status, amount, currency and reference match the payment row. Two paths
+   lead there, and both are safe to repeat: the webhook (`/api/webhooks/paystack`, `charge.success`,
+   checked against `x-paystack-signature`) and the page Paystack returns the patient to
+   (`/payments/paystack/callback`). `settlePayment` locks the payment row and confirms the booking in one
+   transaction (`lib/payments/settle.ts`).
+3. **Unpaid holds** lapse after 30 minutes: the slot is released (status `cancelled`, by `system`)
+   when someone books an overlapping time, or by the daily job. A payment that still arrives later is
+   flagged for a refund.
+4. **Refunds** are done by staff in the Paystack dashboard. A payment is flagged "Refund due" on
+   `/admin/bookings` when a paid booking is cancelled (by the patient, until 2 hours before, or by the
+   hospital), when the amount or currency doesn't match, or when it can't be used (the hold had lapsed,
+   or the booking was already paid). After refunding in Paystack, click **Mark refunded**.
+
+Setup, per environment: put the secret key in `PAYSTACK_SECRET_KEY`, and in the Paystack dashboard
+(Settings → API Keys & Webhooks) set the webhook URL to `https://<host>/api/webhooks/paystack`, for
+Test mode on Preview and Live mode on Production. The callback URL is sent with each transaction, so
+it needs no dashboard setting. Locally, Paystack can't reach `localhost`: the callback page settles the
+payment anyway, or use a tunnel to test the webhook.
+
+Checks: `npx tsx scripts/check-payments.ts` settles payments concurrently against `DATABASE_URL`
+with Paystack stubbed (idempotency, mismatches, refunds; dev databases only), and
+`npx tsx scripts/check-double-booking.ts` races 20 bookings for one slot.
+
 ### Day-to-day
 
 - **Edit doctors, hours and time off** with `npm run db:studio` (owner connection). Weekly hours
   (`doctor_availability`) are local wall-clock times in the doctor's `time_zone`; time off
   (`doctor_time_off`) is a UTC time range.
-- **Booking statuses:** `confirmed` → `cancelled` (patient online until 2 h before, or staff),
-  `completed` (automatically 24 h after the end) or `no_show` (staff).
+- **Booking statuses:** `pending_payment` → `confirmed` (Paystack payment verified) or `cancelled`
+  (patient, staff, or `system` when the 30-minute hold lapses). `confirmed` → `cancelled` (patient
+  online until 2 h before, or staff; a paid booking is flagged for refund), `completed`
+  (automatically 24 h after the end) or `no_show` (staff).
 - **Patient data:** only name, email and optional phone are stored. The daily job clears them
   90 days after the appointment or cancellation (`siteConfig.booking.piiRetentionDays`).

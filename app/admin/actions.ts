@@ -12,6 +12,7 @@ import {
   findUnlinkedDoctor,
   linkDoctorAccount,
   markBookingNoShow,
+  markPaymentRefunded,
   updateDepartment,
   updateDoctorPricing,
 } from "@/lib/admin/queries";
@@ -224,17 +225,34 @@ export async function cancelBookingAsHospitalAction(_previous: ActionState, form
     const result = await cancelBookingAsHospital(db, admin, parsed.data.bookingId);
     if (!result.ok) return error(result.reason === "not_found" ? "Booking not found." : "This booking can no longer be cancelled.");
 
-    const { booking } = result;
+    const { booking, refundDue } = result;
     let emailed = false;
     if (booking.patientName && booking.patientEmail) {
       try {
-        await sendCancellationEmail(createMailer(), { ...booking, patientName: booking.patientName, patientEmail: booking.patientEmail });
+        await sendCancellationEmail(
+          createMailer(),
+          { ...booking, patientName: booking.patientName, patientEmail: booking.patientEmail },
+          { refundDue },
+        );
         emailed = true;
       } catch (cause) {
         console.error(`Cancellation email failed for booking ${booking.id}: ${safeErrorSummary(cause)}`);
       }
     }
-    return bookingsNotice(parsed.data.view, emailed ? "cancelled" : "cancelled-not-emailed", booking.reference);
+    const notice = refundDue ? (emailed ? "cancelled-refund" : "cancelled-refund-not-emailed") : emailed ? "cancelled" : "cancelled-not-emailed";
+    return bookingsNotice(parsed.data.view, notice, booking.reference);
+  });
+}
+
+/** Record that a payment flagged for review was refunded in the Paystack dashboard. */
+export async function markRefundedAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = bookingSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return error("Booking not found.");
+
+  return asAdmin("markRefunded", async (db, admin) => {
+    const result = await markPaymentRefunded(db, admin, parsed.data.bookingId);
+    if (!result.ok) return error("There’s no refund due on this booking.");
+    return bookingsNotice(parsed.data.view, "refunded", result.reference);
   });
 }
 
