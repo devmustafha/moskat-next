@@ -127,9 +127,8 @@ migrations open their own connection (`lib/db/client.ts`).
 Copy `.env.example` to `.env` and fill it in. `npm run dev` connects straight to `DATABASE_URL`
 (use a non-production branch). Booking emails are only sent if `RESEND_API_KEY` is set.
 
-If `db:*` scripts fail with `ETIMEDOUT` on a slow connection, Node is giving up on each database
-address after 250 ms; rerun with
-`NODE_OPTIONS="--network-family-autoselection-attempt-timeout=5000"`.
+On slow connections Node gives up on each database address after 250 ms and fails with
+`ETIMEDOUT`. `lib/db/connect-timeout.ts` raises that to 10 s for the app, scripts and drizzle-kit.
 
 ### Releasing
 

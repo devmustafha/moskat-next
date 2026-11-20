@@ -1,4 +1,5 @@
 import { defineConfig } from "drizzle-kit";
+import "./lib/db/connect-timeout";
 
 /**
  * drizzle-kit runs on your machine, never in the app. DATABASE_URL must be the direct

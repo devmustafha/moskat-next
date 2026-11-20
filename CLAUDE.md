@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Non-interactive shells resolve the system Node (22.22.1), which is too old. Prefix `npm run dev`/`build`/`start` with `. ~/.nvm/nvm.sh && nvm use &&` (Node 22.23.5 via `.nvmrc`).
 - `npm run typecheck` and `npm test` (Vitest, pure modules in `lib/**/*.test.ts` only) are the automated checks. There is no linter. `npm run build` also type-checks. After auth or access changes, run `npm run auth:check -- --base-url <local or preview URL>` (see README: Authentication).
 - Database scripts (`db:*`, `auth:*`, see README: Database) read `DATABASE_URL` from `.env`. Never point them at the Neon `main` branch unless releasing.
-- On high-latency connections (like this machine's to Neon in us-east-2), Node's 250 ms per-address connect timeout makes `db:*` and tsx scripts fail with `ETIMEDOUT` while psql works. Prefix them with `NODE_OPTIONS="--network-family-autoselection-attempt-timeout=10000"`.
+- On high-latency connections (like this machine's to Neon in us-east-2), Node's 250 ms per-address connect timeout makes connections fail with `ETIMEDOUT` while psql works. `lib/db/connect-timeout.ts` raises it to 10 s; keep importing it from anything that opens a database connection.
 - `.env` holds owner credentials. Never print it or a connection string unmasked. Don't `source` it in the shell (the `&` in Neon URLs breaks it); Next.js loads it for the app, and `process.loadEnvFile()` loads it for the configs and scripts.
 
 ## Runtime: Next.js on Vercel

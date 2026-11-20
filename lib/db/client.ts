@@ -1,3 +1,4 @@
+import "@/lib/db/connect-timeout";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 import * as schema from "@/lib/db/schema";

@@ -1,4 +1,5 @@
 import "server-only";
+import "@/lib/db/connect-timeout";
 import { attachDatabasePool } from "@vercel/functions";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
