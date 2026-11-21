@@ -14,6 +14,11 @@ export const siteConfig = {
   timeZone: "Africa/Lagos",
 
   booking: {
+    /**
+     * Every consultation's length, for every doctor. The database requires the same value
+     * (doctors_minutes_check, migration 0013): change both together, in a new migration.
+     */
+    consultationMinutes: 30,
     /** Earliest bookable slot, in minutes from now. */
     leadTimeMinutes: 5,
     /** How far ahead patients can book, in days. */

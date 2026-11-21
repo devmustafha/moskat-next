@@ -12,7 +12,7 @@ export async function Hero() {
   const onlineHours = siteConfig.hours.find((entry) => entry.service === "Online consultations")?.times[0];
   const facts = [
     { value: formatPrice(stats.lowestFeeCents), label: "Video visits from" },
-    { value: `${stats.shortestMinutes} min`, label: "Shortest visit" },
+    { value: `${siteConfig.booking.consultationMinutes} min`, label: "Every video visit" },
     { value: "24/7", label: "Emergency care" },
   ];
 

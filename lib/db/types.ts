@@ -60,7 +60,6 @@ export type Doctor = {
 /** Marketing figures derived from the active doctors ("video visits from $40"). */
 export type CatalogueStats = {
   lowestFeeCents: number;
-  shortestMinutes: number;
   languages: string[];
   doctorCount: number;
 };

@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/server";
 import { formatPrice } from "@/lib/format";
 import { centsToAmount } from "@/lib/money";
+import { siteConfig } from "@/lib/site";
 import { updatePricingAction } from "../actions";
 
 export const metadata: Metadata = {
@@ -23,7 +24,7 @@ export default async function AdminPricingPage() {
     <>
       <PageHeader
         title="Pricing"
-        description="Each doctor’s online consultation fee and length. Changes apply to new bookings; existing bookings keep the fee they were booked at."
+        description={`Each doctor’s online consultation fee. Every consultation is ${siteConfig.booking.consultationMinutes} minutes. Changes apply to new bookings; existing bookings keep the fee they were booked at.`}
       />
       <AdminNav current="/admin/pricing" />
       <Container className="pb-section">
@@ -42,10 +43,6 @@ export default async function AdminPricingPage() {
                   <label className="grid gap-2 text-caption font-medium">
                     Fee ({doctor.currency})
                     <input name="fee" inputMode="decimal" required defaultValue={centsToAmount(doctor.consultationFeeCents)} className="field" />
-                  </label>
-                  <label className="grid gap-2 text-caption font-medium">
-                    Length (minutes)
-                    <input name="minutes" type="number" min={10} max={120} step={5} required defaultValue={doctor.consultationMinutes} className="field" />
                   </label>
                 </div>
               </ActionForm>

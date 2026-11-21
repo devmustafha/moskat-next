@@ -91,12 +91,13 @@ export default async function DoctorProfilePage() {
           </ActionForm>
         </Card>
         <Card>
-          <h2 className="text-h3">Rates</h2>
+          <h2 className="text-h3">Fee</h2>
           <p className="mt-2 text-small text-ink-muted">
-            Now {formatPrice(editable.consultationFeeCents, editable.currency)} for {editable.consultationMinutes} minutes. Changes
-            apply to new bookings; existing bookings keep the fee they were booked at.
+            Now {formatPrice(editable.consultationFeeCents, editable.currency)} for a {editable.consultationMinutes}-minute
+            consultation (the same length for every doctor). Changes apply to new bookings; existing bookings keep the fee they
+            were booked at.
           </p>
-          <ActionForm action={updateDoctorRatesAction} submitLabel="Save rates" className="mt-6">
+          <ActionForm action={updateDoctorRatesAction} submitLabel="Save fee" className="mt-6">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="grid gap-2 text-caption font-medium">
                 Fee ({editable.currency})
@@ -105,19 +106,6 @@ export default async function DoctorProfilePage() {
                   inputMode="decimal"
                   required
                   defaultValue={centsToAmount(editable.consultationFeeCents)}
-                  className="field"
-                />
-              </label>
-              <label className="grid gap-2 text-caption font-medium">
-                Length (minutes)
-                <input
-                  name="minutes"
-                  type="number"
-                  min={10}
-                  max={120}
-                  step={5}
-                  required
-                  defaultValue={editable.consultationMinutes}
                   className="field"
                 />
               </label>

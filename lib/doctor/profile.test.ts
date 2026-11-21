@@ -52,14 +52,12 @@ describe("doctorProfileSchema", () => {
 
 describe("doctorRatesSchema", () => {
   it("converts the fee to cents", () => {
-    expect(doctorRatesSchema.parse({ fee: "45.5", minutes: "30" })).toEqual({ fee: 4550, minutes: 30 });
+    expect(doctorRatesSchema.parse({ fee: "45.5" })).toEqual({ fee: 4550 });
   });
 
   it.each([
-    [{ fee: "0", minutes: "30" }, "Enter a fee like 45 or 45.50."],
-    [{ fee: "45.555", minutes: "30" }, "Enter a fee like 45 or 45.50."],
-    [{ fee: "45", minutes: "5" }, "At least 10 minutes."],
-    [{ fee: "45", minutes: "121" }, "At most 120 minutes."],
+    [{ fee: "0" }, "Enter a fee like 45 or 45.50."],
+    [{ fee: "45.555" }, "Enter a fee like 45 or 45.50."],
   ])("rejects %o", (input, message) => {
     const result = doctorRatesSchema.safeParse(input);
     expect(result.error?.issues[0]?.message).toBe(message);

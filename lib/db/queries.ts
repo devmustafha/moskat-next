@@ -82,12 +82,11 @@ export const getDoctorsByDepartment = cache(async (departmentSlug: string) => {
   return (await listDoctors()).filter((doctor) => doctor.department === departmentSlug);
 });
 
-/** Figures for marketing copy: lowest fee, shortest visit, languages spoken. */
+/** Figures for marketing copy: lowest fee, languages spoken. */
 export const getCatalogueStats = cache(async (): Promise<CatalogueStats> => {
   const all = await listDoctors();
   return {
     lowestFeeCents: all.length ? Math.min(...all.map((doctor) => doctor.consultationFeeCents)) : 0,
-    shortestMinutes: all.length ? Math.min(...all.map((doctor) => doctor.consultationMinutes)) : 0,
     languages: [...new Set(all.flatMap((doctor) => doctor.languages))].sort(),
     doctorCount: all.length,
   };

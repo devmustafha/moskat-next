@@ -76,7 +76,7 @@ export const doctorProfileSchema = z.object({
 
 export type DoctorProfileInput = z.output<typeof doctorProfileSchema>;
 
-/** Fee and consultation length, with the same rules as the admin pricing form. */
+/** The fee, with the same rules as the admin pricing form. The length is the same for everyone (siteConfig). */
 export const doctorRatesSchema = z.object({
   fee: z.string().transform((value, ctx) => {
     const cents = parseAmountToCents(value);
@@ -86,11 +86,6 @@ export const doctorRatesSchema = z.object({
     }
     return cents;
   }),
-  minutes: z.coerce
-    .number({ error: "Enter the length in minutes." })
-    .int("Whole minutes only.")
-    .min(10, "At least 10 minutes.")
-    .max(120, "At most 120 minutes."),
 });
 
 export type DoctorRatesInput = z.output<typeof doctorRatesSchema>;

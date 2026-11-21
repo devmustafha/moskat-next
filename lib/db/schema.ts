@@ -81,7 +81,8 @@ export const doctors = pgTable(
     /** Online consultation fee in minor units (cents). Never a float. */
     consultationFeeCents: integer("consultation_fee_cents").notNull(),
     currency: char("currency", { length: 3 }).notNull().default(siteConfig.currency),
-    consultationMinutes: smallint("consultation_minutes").notNull(),
+    /** Always siteConfig.booking.consultationMinutes (doctors_minutes_check); not set per doctor. */
+    consultationMinutes: smallint("consultation_minutes").notNull().default(siteConfig.booking.consultationMinutes),
     /** IANA time zone the weekly availability is written in; defaults to the hospital's. */
     timeZone: text("time_zone").notNull().default(siteConfig.timeZone),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -95,7 +96,7 @@ export const doctors = pgTable(
   (table) => [
     index("doctors_department_idx").on(table.departmentId),
     check("doctors_fee_check", sql`${table.consultationFeeCents} > 0`),
-    check("doctors_minutes_check", sql`${table.consultationMinutes} between 10 and 120`),
+    check("doctors_minutes_check", sql`${table.consultationMinutes} = ${sql.raw(String(siteConfig.booking.consultationMinutes))}`),
     check("doctors_experience_check", sql`${table.yearsExperience} >= 0`),
   ],
 );
