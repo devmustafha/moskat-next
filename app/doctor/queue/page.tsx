@@ -32,7 +32,7 @@ export default async function DoctorQueuePage() {
             You have no consultations booked from today onwards.
           </div>
         ) : (
-          <ConsultationList bookings={bookings} timeZone={timeZone} todayKey={isoDateIn(now, timeZone)} />
+          <ConsultationList bookings={bookings} timeZone={timeZone} todayKey={isoDateIn(now, timeZone)} now={now} />
         )}
       </Container>
     </>

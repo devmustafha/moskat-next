@@ -7,6 +7,7 @@ import { consultationBookings as bookings, doctorAvailability, doctors, doctorTi
 import { type HoursWindow, planHoursReplacement, toHHMM } from "@/lib/doctor/hours";
 import type { DoctorProfileInput } from "@/lib/doctor/profile";
 import { isoDateIn, startOfDayIn } from "@/lib/format";
+import { bookingIsPaid } from "@/lib/payments/refunds";
 
 /**
  * A signed-in doctor's own schedule, bookings, patients, profile and rates. Every query is scoped
@@ -110,6 +111,8 @@ export type QueueBooking = {
   patientPhone: string | null;
   /** Set when the patient booked while signed in, so the doctor can open their page. Null for guests. */
   patientUserId: string | null;
+  /** A succeeded payment exists, so the booking has a video call (bookings from before payments don't). */
+  paid: boolean;
 };
 
 /** The doctor's time zone, for showing their queue and patients' bookings. */
@@ -129,6 +132,7 @@ const queueFields = {
   patientEmail: bookings.patientEmail,
   patientPhone: bookings.patientPhone,
   patientUserId: bookings.patientUserId,
+  paid: bookingIsPaid(bookings.id),
 };
 
 /**

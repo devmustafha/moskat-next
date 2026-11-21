@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { BookingStatusBadge } from "@/components/bookings/booking-status";
 import { CancelForm } from "@/components/bookings/cancel-form";
 import { PayForm } from "@/components/bookings/pay-form";
+import { JoinCallCard } from "@/components/consultation/join-call-card";
 import { EmergencyNotice } from "@/components/shared/emergency-notice";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -122,6 +123,10 @@ export default async function AccountBookingPage({ params, searchParams }: Props
             </Notice>
           )}
 
+          {booking.paid && (booking.status === "confirmed" || booking.status === "in_progress") && (
+            <JoinCallCard bookingId={booking.id} startsAt={booking.startsAt} endsAt={booking.endsAt} timeZone={booking.doctor.timeZone} now={now} />
+          )}
+
           {holdLive && booking.paymentExpiresAt && (
             <Card tone="muted" className="grid gap-4 md:p-8">
               <h2 className="text-h4">Complete your payment to confirm this booking</h2>
@@ -206,7 +211,7 @@ export default async function AccountBookingPage({ params, searchParams }: Props
               <h2 className="text-h4">What happens next</h2>
               <ol className="mt-4 grid gap-3 text-small text-ink-muted">
                 <li>1. Your booking is confirmed and paid. You’ll find it under Upcoming bookings.</li>
-                <li>2. Before your appointment, the video call link appears on this page. There’s no app to install.</li>
+                <li>2. From 10 minutes before the start, join the video call from this page. There’s no app to install.</li>
                 <li>3. Join a few minutes early from a quiet, private space.</li>
               </ol>
             </Card>
