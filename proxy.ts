@@ -6,6 +6,8 @@ import { NextResponse } from "next/server";
  *   send the token-bearing URL on as a referrer.
  * - /doctors/<slug>/book shows live availability: never cache it.
  * - Sign-in, the auth API and the signed-in areas (account, doctor, admin) are per-user.
+ * - /payments/* (the Paystack return URL) carries a payment reference: never cache or index it.
+ * - /api/consultations/* hands out video-call tokens and /consultations/* is the call itself.
  * Access control itself is done by the guards in lib/auth/session.ts, not here.
  */
 export function proxy() {
@@ -26,5 +28,8 @@ export const config = {
     "/account/:path*",
     "/doctor/:path*",
     "/admin/:path*",
+    "/payments/:path*",
+    "/consultations/:path*",
+    "/api/consultations/:path*",
   ],
 };

@@ -13,4 +13,6 @@ const url = process.env.DATABASE_URL;
 if (!url) throw new Error("Set DATABASE_URL before running maintenance.");
 
 const result = await withDb(url, (db) => runMaintenance(db, new Date()));
-console.log(`maintenance: completed=${result.completed} purged=${result.purged} expiredSessions=${result.expiredSessions}`);
+console.log(
+  `maintenance: expiredHolds=${result.expiredHolds} completed=${result.completed} purged=${result.purged} expiredSessions=${result.expiredSessions}`,
+);

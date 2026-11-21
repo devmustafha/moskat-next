@@ -6,7 +6,7 @@ import { EmergencyNotice } from "@/components/shared/emergency-notice";
 import { Card } from "@/components/ui/card";
 import { Container } from "@/components/ui/container";
 import { Breadcrumbs } from "@/components/ui/page-header";
-import { getSession, isPatient } from "@/lib/auth/session";
+import { requirePatient } from "@/lib/auth/session";
 import { loadSlotQuery } from "@/lib/booking/availability";
 import { listSlots } from "@/lib/booking/slots";
 import { getDoctorBySlug } from "@/lib/db/queries";
@@ -27,9 +27,10 @@ export default async function BookConsultationPage({ params }: Props) {
   const doctor = await getDoctorBySlug((await params).slug);
   if (!doctor) notFound();
 
-  const user = await getSession();
-  const patient = isPatient(user) ? { name: user.name, email: user.email } : null;
-  const bookHref = `/doctors/${doctor.slug}/book`;
+  // Online consultations are paid and joined from a patient account. Signed-out visitors sign in
+  // (or sign up) and come back here; doctors and admins get a 403.
+  const user = await requirePatient(`/doctors/${doctor.slug}/book`);
+  const patient = { name: user.name, email: user.email };
 
   const now = new Date();
   const slots = listSlots(await loadSlotQuery(await getDb(), doctor, now));
@@ -78,7 +79,7 @@ export default async function BookConsultationPage({ params }: Props) {
               feeLabel={`${formatPrice(doctor.consultationFeeCents, doctor.currency)} for ${doctor.consultationMinutes} minutes`}
               days={days}
               patient={patient}
-              signInHref={user ? null : `/sign-in?next=${encodeURIComponent(bookHref)}`}
+              holdMinutes={siteConfig.booking.paymentHoldMinutes}
             />
           </div>
 
@@ -115,8 +116,8 @@ export default async function BookConsultationPage({ params }: Props) {
                 </div>
               </dl>
               <p className="text-caption text-ink-muted">
-                Cancel free of charge up to {siteConfig.booking.cancelUntilHours} hours before your appointment, using
-                the link in your confirmation email.
+                Pay securely with Paystack when you book. Cancel from your account up to{" "}
+                {siteConfig.booking.cancelUntilHours} hours before your appointment for a full refund.
               </p>
             </Card>
           </aside>

@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, lt, ne, or } from "drizzle-orm";
 import type { Db } from "@/lib/db/client";
 import { consultationBookings, doctorAvailability, doctors, doctorTimeOff } from "@/lib/db/schema";
 import { siteConfig } from "@/lib/site";
@@ -41,7 +41,7 @@ export async function findBookableDoctor(db: Db, slug: string): Promise<Bookable
  * slot-holding bookings inside the booking window.
  */
 export async function loadSlotQuery(db: Db, doctor: BookableDoctor, now: Date): Promise<SlotQuery> {
-  const { leadTimeHours, horizonDays } = siteConfig.booking;
+  const { leadTimeMinutes, horizonDays } = siteConfig.booking;
   const windowEnd = new Date(now.getTime() + (horizonDays + 1) * DAY);
 
   const [rules, timeOff, booked] = await Promise.all([
@@ -66,6 +66,8 @@ export async function loadSlotQuery(db: Db, doctor: BookableDoctor, now: Date): 
         and(
           eq(consultationBookings.doctorId, doctor.id),
           ne(consultationBookings.status, "cancelled"),
+          // A lapsed unpaid hold no longer holds its slot (see isLiveHold in ./status).
+          or(ne(consultationBookings.status, "pending_payment"), gt(consultationBookings.paymentExpiresAt, now)),
           lt(consultationBookings.startsAt, windowEnd),
           gt(consultationBookings.endsAt, now),
         ),
@@ -79,7 +81,7 @@ export async function loadSlotQuery(db: Db, doctor: BookableDoctor, now: Date): 
     minutes: doctor.consultationMinutes,
     busy: [...timeOff, ...booked],
     now,
-    leadTimeHours,
+    leadTimeMinutes,
     horizonDays,
   };
 }

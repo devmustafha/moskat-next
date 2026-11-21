@@ -47,7 +47,7 @@ export default async function PricingPage() {
         <SectionHeading
           id="video-title"
           title="Video consultations"
-          description="Each doctor sets their own fee, shown here and on their profile. Your booking is confirmed straight away; our patient team sends payment details before the call."
+          description="Each doctor sets their own fee, shown here and on their profile. You pay online through Paystack when you book, and your booking is confirmed straight away."
           action={<ButtonLink href="/doctors">Find a doctor</ButtonLink>}
         />
         <div className="mt-12 overflow-x-auto rounded-card border bg-canvas md:mt-16">

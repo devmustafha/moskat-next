@@ -69,7 +69,11 @@ export default async function BookingPage({ params, searchParams }: Props) {
           {flags.cancelled && booking.status === "cancelled" && (
             <p role="status" className="mt-8 flex items-start gap-3 rounded-field bg-surface p-4 text-small">
               <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-brand-700" strokeWidth={2} />
-              <span>We’ve cancelled your consultation and emailed you a confirmation. You haven’t been charged.</span>
+              <span>
+                {flags.cancelled === "refund"
+                  ? `We’ve cancelled your consultation and emailed you a confirmation. We’ll refund your payment, usually within ${siteConfig.booking.refundBusinessDays} business days.`
+                  : `We’ve cancelled your consultation and emailed you a confirmation.${booking.paid ? "" : " You haven’t been charged."}`}
+              </span>
             </p>
           )}
 
@@ -98,7 +102,10 @@ export default async function BookingPage({ params, searchParams }: Props) {
               </div>
               <div>
                 <dt className="text-ink-muted">Fee</dt>
-                <dd className="mt-1">{formatPrice(booking.feeCents, booking.currency)}, paid before the call</dd>
+                <dd className="mt-1">
+                  {formatPrice(booking.feeCents, booking.currency)}
+                  {booking.paid ? ", paid" : ""}
+                </dd>
               </div>
               {booking.patientName && (
                 <div>
@@ -133,9 +140,15 @@ export default async function BookingPage({ params, searchParams }: Props) {
             <Card tone="muted" className="md:p-8">
               <h2 className="text-h4">What happens next</h2>
               <ol className="mt-4 grid gap-3 text-small text-ink-muted">
-                <li>1. Our patient team sends payment details before your appointment.</li>
-                <li>2. We email your video link on the day. There’s no app to install.</li>
-                <li>3. Join a few minutes early from a quiet, private space.</li>
+                <li>1. Our patient team contacts you about payment and the video call before your appointment.</li>
+                <li>2. Join a few minutes early from a quiet, private space. There’s no app to install.</li>
+                <li>
+                  3. New bookings are made from a patient account:{" "}
+                  <Link href="/sign-up" className="link">
+                    create one
+                  </Link>{" "}
+                  to pay online and see your bookings in one place.
+                </li>
               </ol>
             </Card>
           )}

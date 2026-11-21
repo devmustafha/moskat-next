@@ -7,6 +7,7 @@ import type { Db } from "@/lib/db/client";
 import { getDb, runWithDb } from "@/lib/db/server";
 import { type Auth, type AuthConfig, createAuth } from "./auth";
 import { findLinkedDoctorId } from "@/lib/doctor/queries";
+import { siteOrigin } from "@/lib/origin";
 import { isPastAbsoluteLifetime } from "./policy";
 
 /**
@@ -14,13 +15,6 @@ import { isPastAbsoluteLifetime } from "./policy";
  * `require*` guards itself: layouts don't re-run on client-side navigation, and server actions
  * are separate endpoints, so a check in a layout alone protects nothing.
  */
-
-/** The site's public origin: BETTER_AUTH_URL, else this Vercel deployment's URL, else local dev. */
-function siteOrigin() {
-  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
-}
 
 function authConfig(): AuthConfig {
   const secret = process.env.BETTER_AUTH_SECRET;
@@ -112,6 +106,42 @@ export async function getDoctorSessionOn(db: Db): Promise<DoctorSession | null> 
   const doctorId = await findLinkedDoctorId(db, user.id);
   if (doctorId === null) return null;
   return { ...user, role: "doctor", doctorId };
+}
+
+/**
+ * Someone who can take part in a video consultation: a signed-in patient, or a signed-in doctor
+ * linked to an active profile. Consultation data functions take this and only ever look up the
+ * caller's own bookings (the patient's account, or the doctor's profile).
+ */
+export type ConsultationActor = PatientSession | DoctorSession;
+
+/**
+ * For pages: a signed-in patient, or a doctor linked to an active profile. Signed-out visitors go
+ * to sign-in, unlinked doctors to /doctor/not-linked, and anyone else (admins) gets a 403. Whether
+ * the booking is theirs is checked by the page's lookup (findConsultation), which 404s otherwise.
+ */
+export async function requireConsultationActor(returnTo: string): Promise<ConsultationActor> {
+  const user = await requireUser(returnTo);
+  if (isPatient(user)) return user;
+  if (user.role !== "doctor") forbidden();
+  const doctorId = await findLinkedDoctorId(await getDb(), user.id);
+  if (doctorId === null) redirect("/doctor/not-linked");
+  return { ...user, role: "doctor", doctorId };
+}
+
+/**
+ * For route handlers (which answer with JSON, not redirects): the signed-in user, looked up on
+ * `db`, and the consultation actor they are (null for admins, unlinked doctors and anyone else).
+ * `user` is null when signed out.
+ */
+export async function getConsultationActorOn(db: Db): Promise<{ user: SessionUser | null; actor: ConsultationActor | null }> {
+  const user = await getSessionOn(db);
+  if (isPatient(user)) return { user, actor: user };
+  if (user?.role === "doctor") {
+    const doctorId = await findLinkedDoctorId(db, user.id);
+    return { user, actor: doctorId === null ? null : { ...user, role: "doctor", doctorId } };
+  }
+  return { user, actor: null };
 }
 
 export type AdminSession = SessionUser & { role: "admin" };

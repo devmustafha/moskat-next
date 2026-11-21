@@ -23,15 +23,22 @@ export default function PrivacyPage() {
     {
       title: "How we use it",
       body: [
-        "Only to arrange your consultation: to confirm the booking, send you the video link and payment details, and contact you if something changes.",
-        "We don’t use your details for marketing, and we don’t sell or share them.",
+        "Only to arrange your consultation: to confirm the booking, take payment, run the video call, and contact you if something changes.",
+        "We don’t use your details for marketing, and we don’t sell them.",
+      ],
+    },
+    {
+      title: "Payments",
+      body: [
+        "Payments are processed by Paystack. We send Paystack your email address, the amount and a booking reference, and you enter your card or bank details on Paystack’s page, never on ours. Paystack emails you a receipt.",
+        "We don’t tell Paystack which doctor or department your appointment is with. We keep a record of each payment (amount, status and Paystack reference) for our accounts and for refunds.",
       ],
     },
     {
       title: "How we protect it",
       body: [
         "Your booking is stored in an encrypted database that only the booking system and authorised staff can access.",
-        "You manage your booking through a private link that only you receive. Keep it private: anyone with the link can view and cancel the booking.",
+        "Online bookings are linked to your patient account, so only you can see or cancel them once you’ve signed in. Bookings made before accounts were needed can still be managed through their private link; keep that link private.",
       ],
     },
     {
@@ -44,7 +51,7 @@ export default function PrivacyPage() {
     {
       title: "If you create an account",
       body: [
-        "An account is optional. It stores your name, email address and an encrypted form of your password, and lets you see the bookings you make while signed in.",
+        "You need an account to book and pay for a video consultation online. It stores your name, email address and an encrypted form of your password, and shows the bookings you make.",
         `While you’re signed in we keep a record of your sign-in, including your IP address and browser. You’re signed out after ${siteConfig.auth.idleTimeoutHours} hours without activity, and always after ${siteConfig.auth.absoluteLifetimeHours} hours.`,
       ],
     },

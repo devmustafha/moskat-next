@@ -3,8 +3,8 @@ import { formatPrice, formatSlot } from "@/lib/format";
 import { siteConfig } from "@/lib/site";
 
 /**
- * Booking emails, sent through `Mailer` (Resend). They contain the doctor, time and
- * private manage link, and nothing clinical.
+ * Booking emails, sent through `Mailer` (Resend). They contain the doctor, time, fee and a link
+ * to the booking in the patient's account, and nothing clinical.
  */
 type EmailBooking = {
   reference: string;
@@ -36,7 +36,11 @@ function details(booking: EmailBooking) {
   return { when, fee: formatPrice(booking.feeCents, booking.currency) };
 }
 
-export async function sendConfirmationEmail(mailer: Mailer, booking: EmailBooking, manageUrl: string) {
+/**
+ * Sent once Paystack has confirmed payment. `bookingUrl` is the booking's page in the patient's
+ * account (sign-in required), so the email carries no bearer link.
+ */
+export async function sendConfirmationEmail(mailer: Mailer, booking: EmailBooking, bookingUrl: string) {
   const { when, fee } = details(booking);
   const name = escapeHtml(booking.patientName);
   const doctor = escapeHtml(booking.doctor.name);
@@ -49,11 +53,11 @@ export async function sendConfirmationEmail(mailer: Mailer, booking: EmailBookin
     text: [
       `Hello ${booking.patientName},`,
       "",
-      `Your video consultation with ${booking.doctor.name} (${booking.doctor.specialty}) is confirmed for ${when}.`,
-      `Reference: ${booking.reference}. Fee: ${fee}; our patient team will send payment details before your appointment.`,
+      `We’ve received your payment of ${fee}. Your video consultation with ${booking.doctor.name} (${booking.doctor.specialty}) is confirmed for ${when}.`,
+      `Reference: ${booking.reference}. Paystack emails your payment receipt separately.`,
       "",
-      `View or cancel your booking: ${manageUrl}`,
-      "Keep this link private: anyone with it can see and cancel your booking.",
+      `View or cancel your booking (sign in to your account): ${bookingUrl}`,
+      `You can cancel online until ${siteConfig.booking.cancelUntilHours} hours before the start; we’ll refund your payment.`,
       "",
       `Online consultations are not for emergencies. If you need urgent help, call ${siteConfig.contact.publicEmergency.label} or ${siteConfig.contact.emergencyPhone.label}.`,
     ].join("\n"),
@@ -61,17 +65,21 @@ export async function sendConfirmationEmail(mailer: Mailer, booking: EmailBookin
       "Your consultation is confirmed",
       [
         `Hello ${name},`,
-        `Your video consultation with <strong>${doctor}</strong> (${escapeHtml(booking.doctor.specialty)}) is confirmed for <strong>${escapeHtml(when)}</strong>.`,
-        `Reference: <strong>${booking.reference}</strong>. Fee: ${fee}; our patient team will send payment details before your appointment.`,
-        "We’ll email the video link before your appointment. Keep the link below private: anyone with it can see and cancel your booking.",
+        `We’ve received your payment of ${fee}. Your video consultation with <strong>${doctor}</strong> (${escapeHtml(booking.doctor.specialty)}) is confirmed for <strong>${escapeHtml(when)}</strong>.`,
+        `Reference: <strong>${booking.reference}</strong>. Paystack emails your payment receipt separately.`,
+        `You can cancel online until ${siteConfig.booking.cancelUntilHours} hours before the start, and we’ll refund your payment. Sign in to your account to view or cancel the booking.`,
       ],
-      { href: manageUrl, label: "View or cancel booking" },
+      { href: bookingUrl, label: "View your booking" },
     ),
   });
 }
 
-export async function sendCancellationEmail(mailer: Mailer, booking: EmailBooking) {
-  const { when } = details(booking);
+/** `refundDue`: the booking was paid, so tell the patient a refund is on its way. */
+export async function sendCancellationEmail(mailer: Mailer, booking: EmailBooking, { refundDue = false }: { refundDue?: boolean } = {}) {
+  const { when, fee } = details(booking);
+  const refund = refundDue
+    ? `We’ll refund your payment of ${fee} to the card or account you paid with, usually within ${siteConfig.booking.refundBusinessDays} business days.`
+    : null;
   await mailer.send({
     from: siteConfig.email.from,
     to: { name: booking.patientName, email: booking.patientEmail },
@@ -80,11 +88,13 @@ export async function sendCancellationEmail(mailer: Mailer, booking: EmailBookin
       `Hello ${booking.patientName},`,
       "",
       `Your video consultation with ${booking.doctor.name} on ${when} (reference ${booking.reference}) has been cancelled.`,
+      ...(refund ? [refund] : []),
       `You can book another time at any point. Questions? Call us on ${siteConfig.contact.phone.label}.`,
     ].join("\n"),
     html: layout("Your consultation has been cancelled", [
       `Hello ${escapeHtml(booking.patientName)},`,
       `Your video consultation with <strong>${escapeHtml(booking.doctor.name)}</strong> on ${escapeHtml(when)} (reference ${booking.reference}) has been cancelled.`,
+      ...(refund ? [refund] : []),
       `You can book another time at any point. Questions? Call us on ${siteConfig.contact.phone.label}.`,
     ]),
   });

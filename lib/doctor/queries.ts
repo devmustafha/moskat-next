@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gt, gte, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, notInArray, or } from "drizzle-orm";
 import type { DoctorSession } from "@/lib/auth/session";
 import { fitsWeeklyHours } from "@/lib/booking/slots";
 import type { Db } from "@/lib/db/client";
@@ -7,6 +7,7 @@ import { consultationBookings as bookings, doctorAvailability, doctors, doctorTi
 import { type HoursWindow, planHoursReplacement, toHHMM } from "@/lib/doctor/hours";
 import type { DoctorProfileInput } from "@/lib/doctor/profile";
 import { isoDateIn, startOfDayIn } from "@/lib/format";
+import { bookingIsPaid } from "@/lib/payments/refunds";
 
 /**
  * A signed-in doctor's own schedule, bookings, patients, profile and rates. Every query is scoped
@@ -24,7 +25,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Statuses that give a doctor access to a patient's page: a booking that happened or is still
  * due. A cancelled booking grants nothing.
  */
-const accessGrantingStatuses = ["confirmed", "completed", "no_show"] as const;
+const accessGrantingStatuses = ["confirmed", "in_progress", "completed", "no_show"] as const;
 
 /** The active doctor profile linked to a doctor account, or null. Used by `requireDoctor` only. */
 export async function findLinkedDoctorId(db: Db, userId: string): Promise<number | null> {
@@ -110,6 +111,8 @@ export type QueueBooking = {
   patientPhone: string | null;
   /** Set when the patient booked while signed in, so the doctor can open their page. Null for guests. */
   patientUserId: string | null;
+  /** A succeeded payment exists, so the booking has a video call (bookings from before payments don't). */
+  paid: boolean;
 };
 
 /** The doctor's time zone, for showing their queue and patients' bookings. */
@@ -129,15 +132,25 @@ const queueFields = {
   patientEmail: bookings.patientEmail,
   patientPhone: bookings.patientPhone,
   patientUserId: bookings.patientUserId,
+  paid: bookingIsPaid(bookings.id),
 };
 
-/** Today's and upcoming consultations (not cancelled), earliest first, with the doctor's time zone. */
+/**
+ * Today's and upcoming consultations, earliest first, with the doctor's time zone. Cancelled
+ * bookings and unpaid holds (`pending_payment`, not booked until paid) aren't shown.
+ */
 export async function listDoctorQueue(db: Db, doctor: DoctorSession, now = new Date()) {
   const timeZone = await doctorTimeZone(db, doctor);
   const rows: QueueBooking[] = await db
     .select(queueFields)
     .from(bookings)
-    .where(and(eq(bookings.doctorId, doctor.doctorId), gte(bookings.startsAt, startOfDayIn(now, timeZone)), ne(bookings.status, "cancelled")))
+    .where(
+      and(
+        eq(bookings.doctorId, doctor.doctorId),
+        gte(bookings.startsAt, startOfDayIn(now, timeZone)),
+        notInArray(bookings.status, ["cancelled", "pending_payment"]),
+      ),
+    )
     .orderBy(asc(bookings.startsAt))
     .limit(QUEUE_LIMIT);
   return { timeZone, bookings: rows };
@@ -347,7 +360,8 @@ export async function replaceWeeklyHours(db: Db, doctor: DoctorSession, windows:
     const upcoming = await tx
       .select({ reference: bookings.reference, startsAt: bookings.startsAt, endsAt: bookings.endsAt })
       .from(bookings)
-      .where(and(eq(bookings.doctorId, doctor.doctorId), eq(bookings.status, "confirmed"), gt(bookings.endsAt, now)))
+      // Unpaid holds count too: they may still be paid and confirmed.
+      .where(and(eq(bookings.doctorId, doctor.doctorId), inArray(bookings.status, ["pending_payment", "confirmed", "in_progress"]), gt(bookings.endsAt, now)))
       .orderBy(asc(bookings.startsAt))
       .limit(UPCOMING_LIMIT);
     const outside = upcoming

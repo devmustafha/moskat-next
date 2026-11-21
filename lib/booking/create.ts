@@ -1,21 +1,24 @@
+import { and, eq, gt, isNull, lt, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import type { PatientSession } from "@/lib/auth/session";
 import type { Db } from "@/lib/db/client";
 import { pgErrorCode } from "@/lib/db/errors";
 import { consultationBookings } from "@/lib/db/schema";
+import { siteConfig } from "@/lib/site";
 import { type BookableDoctor, findBookableDoctor, loadSlotQuery } from "./availability";
 import { findSlot } from "./slots";
 import { createManageToken, createReference, hashToken } from "./tokens";
 
-/** What a patient submits. Only the minimum needed to run a video consultation. */
+const MINUTE = 60 * 1000;
+
+/**
+ * What a patient submits. Only the minimum needed to run a video consultation. The email is the
+ * patient's account email (Paystack sends the receipt there), so it isn't a form field.
+ */
 export const bookingInputSchema = z.object({
   doctorSlug: z.string().min(1).max(100),
   startsAt: z.iso.datetime({ offset: true }),
   name: z.string().trim().min(2, "Please enter your full name.").max(120, "Please shorten your name."),
-  email: z
-    .email("Please enter a valid email address.")
-    .max(254)
-    .transform((value) => value.trim().toLowerCase()),
   phone: z
     .string()
     .trim()
@@ -30,7 +33,6 @@ export type BookingInput = {
   doctorSlug: string;
   startsAt: string;
   name: string;
-  email: string;
   phone: string;
   consent: boolean;
 };
@@ -38,8 +40,6 @@ export type BookingInput = {
 export type CreatedBooking = {
   id: string;
   reference: string;
-  /** Plain manage token for the patient's link. Not stored; only its hash is. */
-  token: string;
   doctor: BookableDoctor;
   startsAt: Date;
   endsAt: Date;
@@ -47,36 +47,54 @@ export type CreatedBooking = {
   currency: string;
   patientName: string;
   patientEmail: string;
+  /** The unpaid hold on the slot lapses at this time. */
+  paymentExpiresAt: Date;
 };
 
 export type CreateBookingResult =
   | { ok: true; booking: CreatedBooking }
   | { ok: false; reason: "invalid_input"; fieldErrors: Record<string, string[] | undefined> }
-  | { ok: false; reason: "doctor_not_found" | "slot_unavailable" | "slot_taken" };
+  | { ok: false; reason: "doctor_not_found" | "slot_unavailable" | "slot_taken" | "not_payable" };
 
 /** Postgres error code for an exclusion-constraint violation (bookings_no_overlap). */
 const EXCLUSION_VIOLATION = "23P01";
 const UNIQUE_VIOLATION = "23505";
 
-export type CreateBookingOptions = {
-  /**
-   * The signed-in patient from `requirePatient`/`getSessionOn`, if any: the booking is linked
-   * to their account. Guests, and doctors or admins booking for themselves, pass nothing.
-   */
-  patient?: PatientSession | null;
-  now?: Date;
-};
+/**
+ * Cancel (as `system`) the doctor's lapsed unpaid holds that overlap [start, end), so the slot is
+ * free again for the exclusion constraint. The daily job sweeps any others.
+ */
+export async function releaseLapsedHolds(db: Db, doctorId: number, start: Date, end: Date, now: Date) {
+  await db
+    .update(consultationBookings)
+    .set({ status: "cancelled", cancelledAt: now, cancelledBy: "system" })
+    .where(
+      and(
+        eq(consultationBookings.doctorId, doctorId),
+        eq(consultationBookings.status, "pending_payment"),
+        or(isNull(consultationBookings.paymentExpiresAt), lte(consultationBookings.paymentExpiresAt, now)),
+        lt(consultationBookings.startsAt, end),
+        gt(consultationBookings.endsAt, start),
+      ),
+    );
+}
+
+/** Release one unpaid hold straight away (e.g. checkout couldn't start), as `system`. */
+export async function releaseHold(db: Db, bookingId: string, now = new Date()) {
+  await db
+    .update(consultationBookings)
+    .set({ status: "cancelled", cancelledAt: now, cancelledBy: "system" })
+    .where(and(eq(consultationBookings.id, bookingId), eq(consultationBookings.status, "pending_payment")));
+}
 
 /**
- * Book a consultation. The requested time is re-checked against the doctor's current hours,
+ * Book a consultation for a signed-in patient, as an unpaid hold (`pending_payment`) that lasts
+ * `siteConfig.booking.paymentHoldMinutes`. It's confirmed only when Paystack confirms payment
+ * (lib/payments/settle.ts). The requested time is re-checked against the doctor's current hours,
  * and the database's no-overlap constraint is the final guard against double-booking: if two
  * patients submit the same slot at once, exactly one insert succeeds.
  */
-export async function createBooking(
-  db: Db,
-  input: BookingInput,
-  { patient = null, now = new Date() }: CreateBookingOptions = {},
-): Promise<CreateBookingResult> {
+export async function createBooking(db: Db, input: BookingInput, patient: PatientSession, now = new Date()): Promise<CreateBookingResult> {
   const parsed = bookingInputSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, reason: "invalid_input", fieldErrors: z.flattenError(parsed.error).fieldErrors };
@@ -85,12 +103,19 @@ export async function createBooking(
 
   const doctor = await findBookableDoctor(db, data.doctorSlug);
   if (!doctor) return { ok: false, reason: "doctor_not_found" };
+  // Paystack charges in the site currency only; a fee in anything else can't be paid online.
+  if (doctor.currency !== siteConfig.currency || doctor.consultationFeeCents <= 0) return { ok: false, reason: "not_payable" };
 
-  const slot = findSlot(await loadSlotQuery(db, doctor, now), new Date(data.startsAt));
+  const requested = new Date(data.startsAt);
+  await releaseLapsedHolds(db, doctor.id, requested, new Date(requested.getTime() + doctor.consultationMinutes * MINUTE), now);
+
+  const slot = findSlot(await loadSlotQuery(db, doctor, now), requested);
   if (!slot) return { ok: false, reason: "slot_unavailable" };
 
-  const token = createManageToken();
-  const manageTokenHash = await hashToken(token);
+  // Bookings keep a manage-token hash (the column is required); new bookings are managed from the
+  // patient's account, so the token itself is discarded.
+  const manageTokenHash = await hashToken(createManageToken());
+  const paymentExpiresAt = new Date(now.getTime() + siteConfig.booking.paymentHoldMinutes * MINUTE);
 
   // A reference collision is astronomically unlikely, but retry rather than fail.
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -104,13 +129,14 @@ export async function createBooking(
           doctorId: doctor.id,
           startsAt: slot.start,
           endsAt: slot.end,
-          status: "confirmed",
+          status: "pending_payment",
+          paymentExpiresAt,
           feeCents: doctor.consultationFeeCents,
           currency: doctor.currency,
           patientName: data.name,
-          patientEmail: data.email,
+          patientEmail: patient.email,
           patientPhone: data.phone,
-          patientUserId: patient?.id ?? null,
+          patientUserId: patient.id,
           consentedAt: now,
         })
         .returning({ id: consultationBookings.id });
@@ -120,14 +146,14 @@ export async function createBooking(
         booking: {
           id: row.id,
           reference,
-          token,
           doctor,
           startsAt: slot.start,
           endsAt: slot.end,
           feeCents: doctor.consultationFeeCents,
           currency: doctor.currency,
           patientName: data.name,
-          patientEmail: data.email,
+          patientEmail: patient.email,
+          paymentExpiresAt,
         },
       };
     } catch (error) {

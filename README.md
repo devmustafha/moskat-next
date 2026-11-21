@@ -39,12 +39,16 @@ app/                     Routes (App Router)
   doctors/[slug]/        Doctor directory (search + filters) and profiles
   doctors/[slug]/book/   Choose a slot and book a video consultation
   bookings/[token]/      Private page to view or cancel a booking
+  consultations/[id]/    The video call (lobby and call), for the booking's patient and doctor
   sign-in/ sign-up/      Accounts (Better Auth)
   account/               Profile; a patient's bookings and past consultations
   doctor/                A doctor's queue, schedule and patients
   admin/                 Bookings, doctors, pricing and departments
   pricing/ contact/ faq/ privacy/ articles/   Content pages
   api/auth/              Better Auth endpoint
+  api/webhooks/paystack/ Paystack webhook (payment confirmation)
+  payments/paystack/     Where Paystack returns the patient after checkout
+  api/consultations/     Video call tokens (Agora), for the booking's patient and doctor only
   api/cron/maintenance/  The daily job (Vercel Cron)
   api/health/            GET /api/health health check
   styleguide/            Design system reference (dev only)
@@ -53,12 +57,15 @@ components/
   layout/                Emergency bar, header, footer, navigation
   shared/                EmergencyNotice, OpeningHours, CtaBand
   auth/ account/ bookings/ doctor/ admin/   Area-specific components
+  consultation/          The video call screen (Agora Web SDK, client-only)
   home/ doctors/ departments/ articles/     Page sections and cards
 lib/
   site.ts                Name, contact details, hours, navigation, booking and auth rules
   db/                    Drizzle schema, queries, pooled server client, seed data, daily job
   auth/                  Better Auth config, session guards, password hashing, policy
   booking/               Slots, create/cancel, tokens, statuses, emails, rate limit
+  payments/              Paystack client, webhook signature, checkout, settlement, refunds
+  consultation/          Video call access rules, Agora tokens, channels, call screen messages
   account/ doctor/ admin/   Data access for each signed-in area
   email/resend.ts        Sends email through Resend
   data/                  Static content: pricing, FAQs, articles, trust signals
@@ -115,6 +122,8 @@ migrations open their own connection (`lib/db/client.ts`).
    | `BETTER_AUTH_URL` | The site's public origin (Production); previews fall back to their own URL |
    | `RESEND_API_KEY` | Resend API key |
    | `CRON_SECRET` | Random string; Vercel Cron sends it to the daily job |
+   | `PAYSTACK_SECRET_KEY` | `sk_test_…` for Preview, `sk_live_…` for Production (see Payments) |
+   | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` | Agora project with App Certificate enabled (see Video consultations) |
 
 5. **Email.** Verify the sending domain in Resend and set the sender in `siteConfig.email.from`.
    Without `RESEND_API_KEY`, bookings still work and the confirmation page shows the manage link.
@@ -187,12 +196,90 @@ are `patient` (public sign-up), `doctor` and `admin` (assigned by an admin).
   for a minute. It refuses to run against production (`DATABASE_URL_MAIN`, or `PRODUCTION_URL`
   if set). Run it after any auth or access change.
 
+### Payments (Paystack)
+
+Video consultations are paid online in NGN (amounts are integer kobo) through Paystack's redirect
+checkout. Only signed-in patients can book.
+
+1. **Book.** The booking is created as `pending_payment` and holds its slot for
+   `siteConfig.booking.paymentHoldMinutes` (30). A `payments` row gets our random reference
+   (`MSK-PAY-…`), Paystack's `/transaction/initialize` is called with the amount, the account email and
+   only the booking id as metadata, and the patient is sent to Paystack.
+2. **Confirm.** A booking becomes `confirmed` only from Paystack's `/transaction/verify` result, fetched
+   by our server, when its status, amount, currency and reference match the payment row. Two paths
+   lead there, and both are safe to repeat: the webhook (`/api/webhooks/paystack`, `charge.success`,
+   checked against `x-paystack-signature`) and the page Paystack returns the patient to
+   (`/payments/paystack/callback`). `settlePayment` locks the payment row and confirms the booking in one
+   transaction (`lib/payments/settle.ts`).
+3. **Unpaid holds** lapse after 30 minutes: the slot is released (status `cancelled`, by `system`)
+   when someone books an overlapping time, or by the daily job. A payment that still arrives later is
+   flagged for a refund.
+4. **Refunds** are done by staff in the Paystack dashboard. A payment is flagged "Refund due" on
+   `/admin/bookings` when a paid booking is cancelled (by the patient, until 2 hours before, or by the
+   hospital), when the amount or currency doesn't match, or when it can't be used (the hold had lapsed,
+   or the booking was already paid). After refunding in Paystack, click **Mark refunded**.
+
+Setup, per environment: put the secret key in `PAYSTACK_SECRET_KEY`, and in the Paystack dashboard
+(Settings → API Keys & Webhooks) set the webhook URL to `https://<host>/api/webhooks/paystack`, for
+Test mode on Preview and Live mode on Production. The callback URL is sent with each transaction, so
+it needs no dashboard setting. Locally, Paystack can't reach `localhost`: the callback page settles the
+payment anyway, or use a tunnel to test the webhook.
+
+Checks: `npx tsx scripts/check-payments.ts` settles payments concurrently against `DATABASE_URL`
+with Paystack stubbed (idempotency, mismatches, refunds; dev databases only), and
+`npx tsx scripts/check-double-booking.ts` races 20 bookings for one slot.
+
+### Video consultations (Agora)
+
+Calls use Agora RTC with token authentication. Tokens are built only on the server
+(`lib/consultation/agora.ts`, `agora-token`, Node.js runtime) by
+`POST /api/consultations/<bookingId>/token`, which the call page asks for when joining and again
+before each token expires. Every request is checked on the server:
+
+- **Who:** a signed-in patient whose account made the booking, or the signed-in doctor whose linked
+  profile it's with. Anyone else gets 404, as if the booking didn't exist; signed out gets 401.
+  Cross-origin requests get 403. Limited to 10 requests a minute per user.
+- **Paid:** the booking is `confirmed` (or `in_progress`) with a succeeded payment, and its call
+  hasn't ended. Bookings from before online payment can't use video.
+- **When:** from 10 minutes before the start; a first join until 30 minutes after the start;
+  renewals and reconnects by someone who already joined until 15 minutes after the scheduled end
+  (`siteConfig.consultation`).
+
+Each booking's call gets a random 32-hex-character channel name (`consultation_calls`). The doctor
+always joins as uid 1 and the patient as uid 2, baked into the token. Tokens last 10 minutes
+(never past the hard stop), with privileges expiring at the same time. There's no recording.
+
+Setup: create an Agora project with **App Certificate enabled** (one for Preview and one for
+Production), and set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Without them the endpoint answers
+503. Requests must come from the site's own origin (`BETTER_AUTH_URL`, or the deployment's URL).
+
+The call screen is `/consultations/<bookingId>` (patient or doctor only; anyone else 404, admins
+403). Patients reach it from their booking page, doctors from **Join call** in their queue. It runs
+the Agora Web SDK (`agora-rtc-sdk-ng`) client-side only (`components/consultation/`, loaded with
+`ssr: false`, so the SDK isn't in any other page's JavaScript):
+
+- **Lobby:** camera preview, microphone level and device choice, open any time before the call so
+  people can test their setup; **Join** unlocks when the window opens. Camera and microphone start
+  separately, so a blocked camera still allows an audio call.
+- **In the call:** full screen, mobile first; mute (`setMuted`), camera off (`setEnabled`, which
+  turns the camera light off), front/back camera on phones, network bars, "reconnecting" and
+  "connection dropped" notices, and a tap-for-sound button when the browser blocks autoplay.
+- **Tokens:** renewed on `token-privilege-will-expire`; if one expires anyway the call rejoins with
+  a fresh token. If the server refuses (call ended or closed), the call leaves.
+- **Leaving:** the Leave button, closing the tab or leaving the page turns the camera and microphone
+  off and leaves the channel. The call also leaves at the hard stop.
+
+Agora's SDK log upload stays off, and in production the browser console shows Agora errors only.
+
 ### Day-to-day
 
 - **Edit doctors, hours and time off** with `npm run db:studio` (owner connection). Weekly hours
   (`doctor_availability`) are local wall-clock times in the doctor's `time_zone`; time off
   (`doctor_time_off`) is a UTC time range.
-- **Booking statuses:** `confirmed` → `cancelled` (patient online until 2 h before, or staff),
-  `completed` (automatically 24 h after the end) or `no_show` (staff).
+- **Booking statuses:** `pending_payment` → `confirmed` (Paystack payment verified) or `cancelled`
+  (patient, staff, or `system` when the 30-minute hold lapses). `confirmed` → `cancelled` (patient
+  online until 2 h before, or staff; a paid booking is flagged for refund), `completed`
+  (automatically 24 h after the end) or `no_show` (staff). `in_progress` (reserved for when both
+  have joined the video call) → `completed`.
 - **Patient data:** only name, email and optional phone are stored. The daily job clears them
   90 days after the appointment or cancellation (`siteConfig.booking.piiRetentionDays`).

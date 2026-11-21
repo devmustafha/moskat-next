@@ -16,8 +16,8 @@ describe("startOfDayIn", () => {
 
 describe("formatWallTime", () => {
   it("formats stored weekly-hours times", () => {
-    expect(formatWallTime("09:00:00")).toBe("9:00 AM");
-    expect(formatWallTime("13:30")).toBe("1:30 PM");
+    expect(formatWallTime("09:00:00")).toBe("9:00 am");
+    expect(formatWallTime("13:30")).toBe("1:30 pm");
   });
 });
 

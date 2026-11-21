@@ -39,7 +39,7 @@ export const faqGroups: FaqGroup[] = [
       {
         question: "How do I book an appointment?",
         answer:
-          "Choose a doctor from our directory to book a video consultation, or call us to book an in-person appointment. You don’t need a referral for most specialist appointments.",
+          "Choose a doctor from our directory, sign in or create a free patient account, pick a time and pay online with Paystack to book a video consultation. To book an in-person appointment, call us. You don’t need a referral for most specialist appointments.",
       },
       {
         question: "How much does a consultation cost?",
@@ -49,7 +49,7 @@ export const faqGroups: FaqGroup[] = [
       {
         question: "Can I cancel or change my appointment?",
         answer:
-          "Yes. Use the link in your confirmation email to cancel free of charge up to 2 hours before your appointment, then book a new time. For later changes, call us.",
+          "Yes. Cancel from your account up to 2 hours before your appointment and we’ll refund your payment in full, then book a new time. For later changes, call us.",
       },
       {
         question: "Do you accept insurance?",

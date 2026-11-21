@@ -7,14 +7,15 @@ export const siteConfig = {
   name: "Moskat",
   tagline: "Hospital & online care",
   description: "Specialist hospital care in person and online, from a team that takes time to listen.",
-  locale: "en-US",
-  currency: "USD",
+  locale: "en-NG",
+  /** Paystack charges in NGN; every amount is integer kobo (minor units). */
+  currency: "NGN",
   /** Hospital time zone: the default for doctors' weekly hours and for displaying times. */
-  timeZone: "America/New_York",
+  timeZone: "Africa/Lagos",
 
   booking: {
-    /** Earliest bookable slot, in hours from now. */
-    leadTimeHours: 2,
+    /** Earliest bookable slot, in minutes from now. */
+    leadTimeMinutes: 15,
     /** How far ahead patients can book, in days. */
     horizonDays: 28,
     /** Patients can cancel online until this many hours before the start. */
@@ -23,6 +24,24 @@ export const siteConfig = {
     piiRetentionDays: 90,
     /** Booking attempts per minute per visitor (IP address). */
     attemptsPerMinute: 5,
+    /** An unpaid booking holds its slot this long while the patient pays; then the slot is released. */
+    paymentHoldMinutes: 30,
+    /** What patients are told about refunds of cancelled paid bookings. */
+    refundBusinessDays: 10,
+  },
+
+  /** Video calls (Agora). Tokens are only issued inside this window around the appointment. */
+  consultation: {
+    /** The call opens this long before the start. */
+    joinOpensMinutesBefore: 10,
+    /** A first join is refused this long after the start (someone who joined can still reconnect). */
+    lateJoinMinutesAfterStart: 30,
+    /** Hard stop: no token, renewal or reconnect after the scheduled end plus this. */
+    graceMinutesAfterEnd: 15,
+    /** Lifetime of each Agora token (and its privileges); the call renews it before it expires. */
+    tokenTtlSeconds: 600,
+    /** Token requests (joins and renewals) per minute per signed-in user. */
+    tokenRequestsPerMinute: 10,
   },
 
   auth: {

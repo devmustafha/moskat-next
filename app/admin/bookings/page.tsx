@@ -6,12 +6,13 @@ import { AdminNotice } from "@/components/admin/admin-notice";
 import { BookingStatusBadge } from "@/components/bookings/booking-status";
 import { Container } from "@/components/ui/container";
 import { PageHeader } from "@/components/ui/page-header";
-import { adminActionsFor, type BookingView, listAdminBookings } from "@/lib/admin/queries";
+import { type AdminBooking, adminActionsFor, type BookingView, listAdminBookings } from "@/lib/admin/queries";
 import { requireAdmin } from "@/lib/auth/session";
+import type { PaymentReviewReason } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/server";
 import { formatPrice, formatSlot } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { cancelBookingAsHospitalAction, markNoShowAction } from "../actions";
+import { cancelBookingAsHospitalAction, markNoShowAction, markRefundedAction } from "../actions";
 
 export const metadata: Metadata = {
   title: "Bookings",
@@ -24,8 +25,39 @@ type Props = { searchParams: Promise<{ view?: string; notice?: string; ref?: str
 const notices = {
   cancelled: { tone: "success", text: "cancelled. The patient has been emailed." },
   "cancelled-not-emailed": { tone: "warning", text: "cancelled, but we couldn’t email the patient. Please let them know." },
+  "cancelled-refund": { tone: "warning", text: "cancelled and the patient emailed. It was paid: refund it in the Paystack dashboard, then mark it refunded here." },
+  "cancelled-refund-not-emailed": {
+    tone: "warning",
+    text: "cancelled, but we couldn’t email the patient. It was paid: refund it in the Paystack dashboard, mark it refunded, and let the patient know.",
+  },
   "no-show": { tone: "success", text: "marked as missed." },
+  refunded: { tone: "success", text: "marked as refunded." },
 } as const;
+
+const reviewReasonLabels: Record<PaymentReviewReason, string> = {
+  cancelled_after_payment: "cancelled after payment",
+  booking_not_payable: "paid after the slot was released",
+  amount_mismatch: "amount didn’t match",
+  currency_mismatch: "currency didn’t match",
+};
+
+/** The booking's payment state, in staff terms. */
+function PaymentBadge({ payment }: { payment: AdminBooking["payment"] }) {
+  if (!payment) return <span className="text-caption text-ink-muted">No online payment</span>;
+  const label = {
+    initialized: "Not paid",
+    failed: "Payment failed",
+    succeeded: "Paid",
+    refunded: "Refunded",
+    needs_review: `Refund due${payment.reviewReason ? ` (${reviewReasonLabels[payment.reviewReason]})` : ""}`,
+  }[payment.status];
+  const tone = payment.status === "needs_review" ? "bg-alert-soft text-alert" : payment.status === "succeeded" ? "bg-brand-50 text-brand-700" : "bg-surface text-ink";
+  return (
+    <span className={cn("inline-flex rounded-full px-2.5 py-1 text-caption font-medium", tone)} title={`Paystack reference ${payment.reference}`}>
+      {label}
+    </span>
+  );
+}
 
 const views: { view: BookingView; label: string; href: string }[] = [
   { view: "upcoming", label: "Upcoming", href: "/admin/bookings" },
@@ -88,10 +120,30 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-2">
                       <BookingStatusBadge status={booking.status} />
-                      {booking.cancelledBy && <span className="text-caption text-ink-muted">by {booking.cancelledBy}</span>}
+                      {booking.cancelledBy && (
+                        <span className="text-caption text-ink-muted">
+                          {booking.cancelledBy === "system" ? "unpaid, slot released" : `by ${booking.cancelledBy}`}
+                        </span>
+                      )}
+                      <PaymentBadge payment={booking.payment} />
                     </span>
+                    {booking.payment && booking.payment.status !== "initialized" && (
+                      <span className="text-caption text-ink-muted">Paystack reference {booking.payment.reference}</span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-start gap-3">
+                    {booking.payment?.status === "needs_review" && (
+                      <ActionForm
+                        action={markRefundedAction}
+                        submitLabel="Mark refunded"
+                        pendingLabel="Saving…"
+                        confirm="Have you refunded this payment in the Paystack dashboard?"
+                        variant="outline"
+                      >
+                        <input type="hidden" name="bookingId" value={booking.id} />
+                        <input type="hidden" name="view" value={view} />
+                      </ActionForm>
+                    )}
                     {actions.cancel && (
                       <ActionForm
                         action={cancelBookingAsHospitalAction}

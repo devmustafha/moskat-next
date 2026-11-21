@@ -138,8 +138,11 @@ async function signUp(name: Who) {
   ids[name] = ((await response.json()) as { user: { id: string } }).user.id;
 }
 
-/** Inserts a booking for setup, far in the future so it never collides with real ones. */
-async function insertBooking(slug: string, patient: Who, status: "confirmed" | "cancelled", hourOffset: number) {
+/**
+ * Inserts a booking for setup, far in the future so it never collides with real ones (unless
+ * `startsAt` is given).
+ */
+async function insertBooking(slug: string, patient: Who, status: "confirmed" | "cancelled", hourOffset: number, startsAt = startFor(hourOffset)) {
   const [row] = await sql<{ id: string; reference: string }>(
     `insert into consultation_bookings
        (reference, manage_token_hash, doctor_id, starts_at, ends_at, status, fee_cents, currency,
@@ -150,7 +153,7 @@ async function insertBooking(slug: string, patient: Who, status: "confirmed" | "
             case when $3 = 'cancelled' then now() end, case when $3 = 'cancelled' then 'patient'::cancelled_by end
      from doctors d where d.slug = $7
      returning id, reference`,
-    [`CHK-${run.slice(-5).toUpperCase()}${hourOffset}`, startFor(hourOffset), status, `Check ${patient} ${run}`, emailOf(patient), ids[patient], slug],
+    [`CHK-${run.slice(-5).toUpperCase()}${hourOffset}`, startsAt, status, `Check ${patient} ${run}`, emailOf(patient), ids[patient], slug],
   );
   if (!row) throw new Error(`Doctor ${slug} not found`);
   return row;
@@ -260,6 +263,61 @@ try {
     check("Z: not-linked page shows no bookings", notLinked.status === 200 && !notLinked.body.includes("CHK-"), `${notLinked.status}`);
   }
 
+  // Video call tokens (before the session checks below, which sign people out).
+  {
+    const tokenFor = async (visitor: Visitor, bookingId: string, headers?: Record<string, string>) => {
+      const response = await visitor.post(`/api/consultations/${bookingId}/token`, {}, headers);
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return { status: response.status, body, cacheControl: response.headers.get("cache-control") ?? "" };
+    };
+    const pay = (bookingId: string) =>
+      sql(
+        `insert into payments (booking_id, reference, amount_minor, currency, status, paid_at)
+         select id, 'CHK-PAY-' || reference, fee_cents, currency, 'succeeded', now() from consultation_bookings where id = $1`,
+        [bookingId],
+      );
+
+    // A paid consultation with X that started a minute ago, so its call is open now.
+    const live = await insertBooking(slugX, "A", "confirmed", 3, new Date(Math.floor(Date.now() / 60_000) * 60_000 - 60_000).toISOString());
+    await pay(live.id);
+
+    let r = await tokenFor(new Visitor(), live.id);
+    check("token: signed out → 401", r.status === 401, `${r.status}`);
+    r = await tokenFor(visitors.A, live.id, { origin: "https://evil.example" });
+    check("token: from another origin → 403", r.status === 403, `${r.status}`);
+    for (const [name, label] of [["B", "another patient"], ["Y", "another doctor"], ["Z", "an unlinked doctor"], ["Admin", "an admin"]] as const) {
+      r = await tokenFor(visitors[name], live.id);
+      check(`token: ${label} (${name}) → 404`, r.status === 404 && r.body.error === "not_found", `${r.status} ${String(r.body.error)}`);
+    }
+    r = await tokenFor(visitors.A, BY.id);
+    check("token: A for B's booking → 404", r.status === 404, `${r.status}`);
+    r = await tokenFor(visitors.A, AX.id);
+    check("token: confirmed but unpaid → 409 not_paid", r.status === 409 && r.body.error === "not_paid", `${r.status} ${String(r.body.error)}`);
+    await pay(AX.id);
+    r = await tokenFor(visitors.A, AX.id);
+    check("token: paid, before the window → 403 too_early", r.status === 403 && r.body.error === "too_early" && typeof r.body.opensAt === "string", `${r.status} ${String(r.body.error)}`);
+    r = await tokenFor(visitors.A, AY.id);
+    check("token: cancelled → 409", r.status === 409 && r.body.error === "cancelled", `${r.status} ${String(r.body.error)}`);
+
+    const patient = await tokenFor(visitors.A, live.id);
+    if (patient.status === 503) {
+      console.log("NOTE  token: issuing skipped (503): set AGORA_APP_ID and AGORA_APP_CERTIFICATE on the site to check it");
+    } else {
+      const doctor = await tokenFor(visitors.X, live.id);
+      check(
+        "token: the patient gets one as uid 2",
+        patient.status === 200 && patient.body.uid === 2 && patient.body.role === "patient" && typeof patient.body.token === "string",
+        `${patient.status} uid=${String(patient.body.uid)}`,
+      );
+      check(
+        "token: the doctor gets one as uid 1, for the same random channel",
+        doctor.status === 200 && doctor.body.uid === 1 && doctor.body.channel === patient.body.channel && /^[0-9a-f]{32}$/.test(String(patient.body.channel)),
+        `${doctor.status} uid=${String(doctor.body.uid)}`,
+      );
+      check("token: response is never cached", patient.cacheControl.includes("no-store"), patient.cacheControl);
+    }
+  }
+
   // Admin.
   {
     for (const path of ["/admin/bookings", "/admin/doctors", "/admin/pricing", "/admin/departments"]) {
@@ -345,9 +403,14 @@ try {
 } catch (error) {
   check("check ran to completion", false, error instanceof Error ? error.message : String(error));
 } finally {
-  // Remove everything this run created: bookings, profile links and accounts (sessions cascade).
+  // Remove everything this run created: calls, payments, bookings, profile links and accounts
+  // (sessions cascade).
   try {
-    await sql("delete from consultation_bookings where reference like $1", [`CHK-${run.slice(-5).toUpperCase()}%`]);
+    const mine = "select id from consultation_bookings where reference like $1";
+    const prefix = [`CHK-${run.slice(-5).toUpperCase()}%`];
+    await sql(`delete from consultation_calls where booking_id in (${mine})`, prefix);
+    await sql(`delete from payments where booking_id in (${mine})`, prefix);
+    await sql("delete from consultation_bookings where reference like $1", prefix);
     await sql("update doctors set user_id = null where slug = any($1)", [linkedSlugs]);
     await sql("delete from users where email like $1", [`check-${run}-%@example.test`]);
   } catch (error) {

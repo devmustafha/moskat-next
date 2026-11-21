@@ -14,7 +14,7 @@ function query(overrides: Partial<SlotQuery>): SlotQuery {
     minutes: 30,
     busy: [],
     now: new Date("2026-11-15T12:00:00Z"), // Sunday
-    leadTimeHours: 0,
+    leadTimeMinutes: 0,
     horizonDays: 7,
     ...overrides,
   };
@@ -56,7 +56,7 @@ describe("listSlots", () => {
   it("respects the lead time and the booking horizon", () => {
     const rules = [rule(1, "09:00", "12:00")];
     // Monday 08:30 EST with a 2-hour lead time: the first bookable slot is 10:30.
-    const slots = listSlots(query({ rules, now: new Date("2026-11-16T13:30:00Z"), leadTimeHours: 2, horizonDays: 6 }));
+    const slots = listSlots(query({ rules, now: new Date("2026-11-16T13:30:00Z"), leadTimeMinutes: 120, horizonDays: 6 }));
     expect(slots[0].start.toISOString()).toBe("2026-11-16T15:30:00.000Z");
     // A 6-day horizon from Monday doesn't reach the following Monday.
     expect(slots.every((slot) => slot.start < new Date("2026-11-22T00:00:00Z"))).toBe(true);

@@ -1,9 +1,20 @@
 import "server-only";
-import { and, asc, desc, eq, exists, gt, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, isNull, lte, sql } from "drizzle-orm";
 import type { AdminSession } from "@/lib/auth/session";
+import { cancelBooking } from "@/lib/booking/manage";
 import { canTransition } from "@/lib/booking/status";
 import type { Db } from "@/lib/db/client";
-import { consultationBookings as bookings, type BookingStatus, departments, doctors, users } from "@/lib/db/schema";
+import {
+  consultationBookings as bookings,
+  type BookingStatus,
+  departments,
+  doctors,
+  type PaymentReviewReason,
+  payments,
+  type PaymentStatus,
+  users,
+} from "@/lib/db/schema";
+import { outerColumn } from "@/lib/payments/refunds";
 
 /**
  * The hospital admin area. Every function takes the result of `requireAdmin`, so it can only be
@@ -161,14 +172,23 @@ export type AdminBooking = {
   endsAt: Date;
   feeCents: number;
   currency: string;
-  cancelledBy: "patient" | "hospital" | null;
+  cancelledBy: "patient" | "hospital" | "system" | null;
   patientName: string | null;
   patientEmail: string | null;
   patientPhone: string | null;
   doctor: { name: string; specialty: string; timeZone: string };
+  /**
+   * The payment that matters most for this booking, or null if none was started (bookings made
+   * before payments existed). Refunds due come first, then the successful payment, then refunded,
+   * then the latest unpaid attempt.
+   */
+  payment: { status: PaymentStatus; reviewReason: PaymentReviewReason | null; reference: string } | null;
 };
 
-/** Explicit columns only: schedule, status, fee and patient contact. */
+/** Order of importance when a booking has several payment attempts. */
+const paymentRank = sql`case ${payments.status} when 'needs_review' then 0 when 'succeeded' then 1 when 'refunded' then 2 else 3 end`;
+
+/** Explicit columns only: schedule, status, fee, patient contact and payment state. */
 const adminBookingFields = {
   id: bookings.id,
   reference: bookings.reference,
@@ -182,6 +202,10 @@ const adminBookingFields = {
   patientEmail: bookings.patientEmail,
   patientPhone: bookings.patientPhone,
   doctor: { name: doctors.name, specialty: doctors.specialty, timeZone: doctors.timeZone },
+  payment: sql<AdminBooking["payment"]>`(
+    select json_build_object('status', ${payments.status}, 'reviewReason', ${payments.reviewReason}, 'reference', ${payments.reference})
+    from ${payments} where ${payments.bookingId} = ${outerColumn(bookings.id)}
+    order by ${paymentRank}, ${payments.createdAt} desc limit 1)`,
 };
 
 export type BookingView = "upcoming" | "past";
@@ -215,38 +239,51 @@ export function adminActionsFor(booking: Pick<AdminBooking, "status" | "startsAt
 }
 
 export type AdminBookingResult =
-  | { ok: true; booking: AdminBooking }
+  /** `refundDue`: a cancelled booking had been paid; its payment is now flagged for a refund. */
+  | { ok: true; booking: AdminBooking; refundDue: boolean }
   | { ok: false; reason: "not_found" | "not_allowed" };
 
-/** Cancel on the hospital's behalf (any time while confirmed). Frees the slot immediately. */
-export async function cancelBookingAsHospital(db: Db, admin: AdminSession, id: string, now = new Date()): Promise<AdminBookingResult> {
-  return changeStatus(db, admin, id, "cancelled", now, { cancelledAt: now, cancelledBy: "hospital" });
+/**
+ * Cancel on the hospital's behalf (any time while unpaid or confirmed). Frees the slot
+ * immediately; a paid booking's payment is flagged for a refund in the same transaction.
+ */
+export async function cancelBookingAsHospital(db: Db, _admin: AdminSession, id: string, now = new Date()): Promise<AdminBookingResult> {
+  const booking = await findAdminBooking(db, id);
+  if (!booking) return { ok: false, reason: "not_found" };
+  if (!adminActionsFor(booking, now).cancel) return { ok: false, reason: "not_allowed" };
+
+  const cancelled = await cancelBooking(db, booking.id, booking.status, { cancelledAt: now, cancelledBy: "hospital" });
+  if (!cancelled) return { ok: false, reason: "not_allowed" };
+  return { ok: true, booking: { ...booking, status: "cancelled", cancelledBy: "hospital" }, refundDue: cancelled.refundDue };
 }
 
 /** Record that the patient didn't attend (from the start time on). */
-export async function markBookingNoShow(db: Db, admin: AdminSession, id: string, now = new Date()): Promise<AdminBookingResult> {
-  return changeStatus(db, admin, id, "no_show", now, {});
-}
-
-async function changeStatus(
-  db: Db,
-  _admin: AdminSession,
-  id: string,
-  to: "cancelled" | "no_show",
-  now: Date,
-  extra: { cancelledAt?: Date; cancelledBy?: "hospital" },
-): Promise<AdminBookingResult> {
+export async function markBookingNoShow(db: Db, _admin: AdminSession, id: string, now = new Date()): Promise<AdminBookingResult> {
   const booking = await findAdminBooking(db, id);
   if (!booking) return { ok: false, reason: "not_found" };
-  const allowed = adminActionsFor(booking, now);
-  if (!(to === "cancelled" ? allowed.cancel : allowed.noShow)) return { ok: false, reason: "not_allowed" };
+  if (!adminActionsFor(booking, now).noShow) return { ok: false, reason: "not_allowed" };
 
   // Only if the status hasn't changed since it was read, so a concurrent change isn't overwritten.
   const updated = await db
     .update(bookings)
-    .set({ status: to, ...extra })
+    .set({ status: "no_show" })
     .where(and(eq(bookings.id, booking.id), eq(bookings.status, booking.status)))
     .returning({ id: bookings.id });
   if (updated.length === 0) return { ok: false, reason: "not_allowed" };
-  return { ok: true, booking: { ...booking, status: to, cancelledBy: extra.cancelledBy ?? booking.cancelledBy } };
+  return { ok: true, booking: { ...booking, status: "no_show" }, refundDue: false };
+}
+
+/**
+ * Record that staff refunded a booking's payment in the Paystack dashboard: every payment of
+ * the booking that is flagged for review becomes `refunded`. Returns the booking reference.
+ */
+export async function markPaymentRefunded(db: Db, _admin: AdminSession, bookingId: string): Promise<{ ok: true; reference: string } | { ok: false }> {
+  const booking = await findAdminBooking(db, bookingId);
+  if (!booking) return { ok: false };
+  const updated = await db
+    .update(payments)
+    .set({ status: "refunded" })
+    .where(and(eq(payments.bookingId, booking.id), eq(payments.status, "needs_review")))
+    .returning({ id: payments.id });
+  return updated.length > 0 ? { ok: true, reference: booking.reference } : { ok: false };
 }
