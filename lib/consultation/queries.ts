@@ -24,6 +24,8 @@ export type Consultation = {
   /** A succeeded payment exists (refunds and reviews don't count). */
   paid: boolean;
   doctorName: string;
+  /** The doctor's time zone, for showing the call's times. */
+  timeZone: string;
   /** The patient's name as booked; null once purged. */
   patientName: string | null;
   call: { channelName: string; endedAt: Date | null; doctorJoinedAt: Date | null; patientJoinedAt: Date | null } | null;
@@ -42,6 +44,7 @@ export async function findConsultation(db: Db, actor: ConsultationActor, booking
       endsAt: bookings.endsAt,
       paid: bookingIsPaid(bookings.id),
       doctorName: doctors.name,
+      timeZone: doctors.timeZone,
       patientName: bookings.patientName,
       channelName: calls.channelName,
       endedAt: calls.endedAt,

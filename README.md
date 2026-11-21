@@ -39,6 +39,7 @@ app/                     Routes (App Router)
   doctors/[slug]/        Doctor directory (search + filters) and profiles
   doctors/[slug]/book/   Choose a slot and book a video consultation
   bookings/[token]/      Private page to view or cancel a booking
+  consultations/[id]/    The video call (lobby and call), for the booking's patient and doctor
   sign-in/ sign-up/      Accounts (Better Auth)
   account/               Profile; a patient's bookings and past consultations
   doctor/                A doctor's queue, schedule and patients
@@ -56,6 +57,7 @@ components/
   layout/                Emergency bar, header, footer, navigation
   shared/                EmergencyNotice, OpeningHours, CtaBand
   auth/ account/ bookings/ doctor/ admin/   Area-specific components
+  consultation/          The video call screen (Agora Web SDK, client-only)
   home/ doctors/ departments/ articles/     Page sections and cards
 lib/
   site.ts                Name, contact details, hours, navigation, booking and auth rules
@@ -63,7 +65,7 @@ lib/
   auth/                  Better Auth config, session guards, password hashing, policy
   booking/               Slots, create/cancel, tokens, statuses, emails, rate limit
   payments/              Paystack client, webhook signature, checkout, settlement, refunds
-  consultation/          Video call access rules, Agora tokens, channels
+  consultation/          Video call access rules, Agora tokens, channels, call screen messages
   account/ doctor/ admin/   Data access for each signed-in area
   email/resend.ts        Sends email through Resend
   data/                  Static content: pricing, FAQs, articles, trust signals
@@ -250,6 +252,24 @@ always joins as uid 1 and the patient as uid 2, baked into the token. Tokens las
 Setup: create an Agora project with **App Certificate enabled** (one for Preview and one for
 Production), and set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Without them the endpoint answers
 503. Requests must come from the site's own origin (`BETTER_AUTH_URL`, or the deployment's URL).
+
+The call screen is `/consultations/<bookingId>` (patient or doctor only; anyone else 404, admins
+403). Patients reach it from their booking page, doctors from **Join call** in their queue. It runs
+the Agora Web SDK (`agora-rtc-sdk-ng`) client-side only (`components/consultation/`, loaded with
+`ssr: false`, so the SDK isn't in any other page's JavaScript):
+
+- **Lobby:** camera preview, microphone level and device choice, open any time before the call so
+  people can test their setup; **Join** unlocks when the window opens. Camera and microphone start
+  separately, so a blocked camera still allows an audio call.
+- **In the call:** full screen, mobile first; mute (`setMuted`), camera off (`setEnabled`, which
+  turns the camera light off), front/back camera on phones, network bars, "reconnecting" and
+  "connection dropped" notices, and a tap-for-sound button when the browser blocks autoplay.
+- **Tokens:** renewed on `token-privilege-will-expire`; if one expires anyway the call rejoins with
+  a fresh token. If the server refuses (call ended or closed), the call leaves.
+- **Leaving:** the Leave button, closing the tab or leaving the page turns the camera and microphone
+  off and leaves the channel. The call also leaves at the hard stop.
+
+Agora's SDK log upload stays off, and in production the browser console shows Agora errors only.
 
 ### Day-to-day
 

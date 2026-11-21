@@ -116,6 +116,20 @@ export async function getDoctorSessionOn(db: Db): Promise<DoctorSession | null> 
 export type ConsultationActor = PatientSession | DoctorSession;
 
 /**
+ * For pages: a signed-in patient, or a doctor linked to an active profile. Signed-out visitors go
+ * to sign-in, unlinked doctors to /doctor/not-linked, and anyone else (admins) gets a 403. Whether
+ * the booking is theirs is checked by the page's lookup (findConsultation), which 404s otherwise.
+ */
+export async function requireConsultationActor(returnTo: string): Promise<ConsultationActor> {
+  const user = await requireUser(returnTo);
+  if (isPatient(user)) return user;
+  if (user.role !== "doctor") forbidden();
+  const doctorId = await findLinkedDoctorId(await getDb(), user.id);
+  if (doctorId === null) redirect("/doctor/not-linked");
+  return { ...user, role: "doctor", doctorId };
+}
+
+/**
  * For route handlers (which answer with JSON, not redirects): the signed-in user, looked up on
  * `db`, and the consultation actor they are (null for admins, unlinked doctors and anyone else).
  * `user` is null when signed out.
