@@ -15,7 +15,7 @@ export const siteConfig = {
 
   booking: {
     /** Earliest bookable slot, in minutes from now. */
-    leadTimeMinutes: 15,
+    leadTimeMinutes: 5,
     /** How far ahead patients can book, in days. */
     horizonDays: 28,
     /** Patients can cancel online until this many hours before the start. */
