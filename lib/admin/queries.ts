@@ -14,6 +14,7 @@ import {
   type PaymentStatus,
   users,
 } from "@/lib/db/schema";
+import { outerColumn } from "@/lib/payments/refunds";
 
 /**
  * The hospital admin area. Every function takes the result of `requireAdmin`, so it can only be
@@ -203,7 +204,7 @@ const adminBookingFields = {
   doctor: { name: doctors.name, specialty: doctors.specialty, timeZone: doctors.timeZone },
   payment: sql<AdminBooking["payment"]>`(
     select json_build_object('status', ${payments.status}, 'reviewReason', ${payments.reviewReason}, 'reference', ${payments.reference})
-    from ${payments} where ${payments.bookingId} = ${bookings.id}
+    from ${payments} where ${payments.bookingId} = ${outerColumn(bookings.id)}
     order by ${paymentRank}, ${payments.createdAt} desc limit 1)`,
 };
 

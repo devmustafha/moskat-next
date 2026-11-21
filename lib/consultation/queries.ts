@@ -2,7 +2,8 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import type { ConsultationActor } from "@/lib/auth/session";
 import type { Db } from "@/lib/db/client";
-import { consultationBookings as bookings, consultationCalls as calls, doctors, payments } from "@/lib/db/schema";
+import { consultationBookings as bookings, consultationCalls as calls, doctors } from "@/lib/db/schema";
+import { bookingIsPaid } from "@/lib/payments/refunds";
 import type { ConsultationRole } from "./access";
 import { createChannelName } from "./channel";
 
@@ -39,7 +40,7 @@ export async function findConsultation(db: Db, actor: ConsultationActor, booking
       status: bookings.status,
       startsAt: bookings.startsAt,
       endsAt: bookings.endsAt,
-      paid: sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${bookings.id} and ${payments.status} = 'succeeded')`,
+      paid: bookingIsPaid(bookings.id),
       doctorName: doctors.name,
       patientName: bookings.patientName,
       channelName: calls.channelName,

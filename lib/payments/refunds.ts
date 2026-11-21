@@ -1,4 +1,5 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableName, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Db } from "@/lib/db/client";
 import { payments } from "@/lib/db/schema";
 
@@ -20,7 +21,21 @@ export async function flagPaymentForRefund(db: Executor, bookingId: string) {
   return flagged.length > 0;
 }
 
+/**
+ * The outer query's booking id column, always as "table"."column". Drizzle leaves columns
+ * unqualified when a select has no joins, and inside a subquery on `payments` a bare "id" would
+ * bind to payments.id instead, silently matching nothing.
+ */
+export function outerColumn(column: AnyPgColumn) {
+  return sql`${sql.identifier(getTableName(column.table))}.${sql.identifier(column.name)}`;
+}
+
 /** SQL: whether money was taken for the booking (`bookingId` column), whatever happened after. */
-export function bookingWasPaid(bookingId: Parameters<typeof eq>[0]) {
-  return sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${bookingId} and ${payments.paidAt} is not null)`;
+export function bookingWasPaid(bookingId: AnyPgColumn) {
+  return sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${outerColumn(bookingId)} and ${payments.paidAt} is not null)`;
+}
+
+/** SQL: whether the booking (`bookingId` column) is paid now: a succeeded payment, not refunded or under review. */
+export function bookingIsPaid(bookingId: AnyPgColumn) {
+  return sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${outerColumn(bookingId)} and ${payments.status} = 'succeeded')`;
 }
