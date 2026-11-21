@@ -2,6 +2,7 @@ import { getConsultationActorOn } from "@/lib/auth/session";
 import { isConsultationTokenRateLimited } from "@/lib/booking/rate-limit";
 import { AGORA_UID, decideAccess, tokenLifetimeSeconds } from "@/lib/consultation/access";
 import { AgoraNotConfiguredError, buildRtcToken } from "@/lib/consultation/agora";
+import type { TokenErrorCode, TokenGrant } from "@/lib/consultation/call-ui";
 import { findConsultation, openCallFor } from "@/lib/consultation/queries";
 import { safeErrorSummary } from "@/lib/db/errors";
 import { runWithDb } from "@/lib/db/server";
@@ -21,7 +22,7 @@ import { siteOrigin } from "@/lib/origin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type ErrorCode = "forbidden_origin" | "signed_out" | "not_found" | "rate_limited" | "not_paid" | "cancelled" | "ended" | "too_early" | "closed" | "unavailable";
+type ErrorCode = TokenErrorCode;
 
 const STATUS: Record<ErrorCode, number> = {
   forbidden_origin: 403,
@@ -72,26 +73,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const ttl = tokenLifetimeSeconds(now, decision.hardStopAt);
       const { appId, token } = buildRtcToken(channelName, uid, ttl);
 
-      return Response.json(
-        {
-          appId,
-          channel: channelName,
-          uid,
-          token,
-          expiresAt: new Date(now.getTime() + ttl * 1000).toISOString(),
-          role: consultation.role,
-          peerUid: AGORA_UID[consultation.role === "doctor" ? "patient" : "doctor"],
-          peerName: consultation.role === "doctor" ? consultation.patientName : consultation.doctorName,
-          call: {
-            startsAt: consultation.startsAt.toISOString(),
-            endsAt: consultation.endsAt.toISOString(),
-            opensAt: decision.opensAt.toISOString(),
-            hardStopAt: decision.hardStopAt.toISOString(),
-            status: consultation.status,
-          },
+      const grant: TokenGrant = {
+        appId,
+        channel: channelName,
+        uid,
+        token,
+        expiresAt: new Date(now.getTime() + ttl * 1000).toISOString(),
+        role: consultation.role,
+        peerUid: AGORA_UID[consultation.role === "doctor" ? "patient" : "doctor"],
+        peerName: consultation.role === "doctor" ? consultation.patientName : consultation.doctorName,
+        call: {
+          startsAt: consultation.startsAt.toISOString(),
+          endsAt: consultation.endsAt.toISOString(),
+          opensAt: decision.opensAt.toISOString(),
+          hardStopAt: decision.hardStopAt.toISOString(),
+          status: consultation.status,
         },
-        { headers: NO_STORE },
-      );
+      };
+      return Response.json(grant, { headers: NO_STORE });
     });
   } catch (error) {
     if (error instanceof AgoraNotConfiguredError) {
