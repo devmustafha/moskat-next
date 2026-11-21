@@ -41,7 +41,7 @@ export async function findBookableDoctor(db: Db, slug: string): Promise<Bookable
  * slot-holding bookings inside the booking window.
  */
 export async function loadSlotQuery(db: Db, doctor: BookableDoctor, now: Date): Promise<SlotQuery> {
-  const { leadTimeHours, horizonDays } = siteConfig.booking;
+  const { leadTimeMinutes, horizonDays } = siteConfig.booking;
   const windowEnd = new Date(now.getTime() + (horizonDays + 1) * DAY);
 
   const [rules, timeOff, booked] = await Promise.all([
@@ -81,7 +81,7 @@ export async function loadSlotQuery(db: Db, doctor: BookableDoctor, now: Date): 
     minutes: doctor.consultationMinutes,
     busy: [...timeOff, ...booked],
     now,
-    leadTimeHours,
+    leadTimeMinutes,
     horizonDays,
   };
 }

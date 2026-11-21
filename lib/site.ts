@@ -14,8 +14,8 @@ export const siteConfig = {
   timeZone: "Africa/Lagos",
 
   booking: {
-    /** Earliest bookable slot, in hours from now. */
-    leadTimeHours: 2,
+    /** Earliest bookable slot, in minutes from now. */
+    leadTimeMinutes: 15,
     /** How far ahead patients can book, in days. */
     horizonDays: 28,
     /** Patients can cancel online until this many hours before the start. */

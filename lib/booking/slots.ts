@@ -29,7 +29,7 @@ export type SlotQuery = {
   /** Time off and existing (non-cancelled) bookings. */
   busy: Interval[];
   now: Date;
-  leadTimeHours: number;
+  leadTimeMinutes: number;
   horizonDays: number;
 };
 
@@ -66,8 +66,8 @@ function overlaps(a: Interval, b: Interval) {
 }
 
 /** All bookable slots in the window [now + lead time, now + horizon), earliest first. */
-export function listSlots({ rules, timeZone, minutes, busy, now, leadTimeHours, horizonDays }: SlotQuery): Interval[] {
-  const earliest = now.getTime() + leadTimeHours * HOUR;
+export function listSlots({ rules, timeZone, minutes, busy, now, leadTimeMinutes, horizonDays }: SlotQuery): Interval[] {
+  const earliest = now.getTime() + leadTimeMinutes * MINUTE;
   const latest = now.getTime() + horizonDays * DAY;
   const today = localDate(now, timeZone);
   const seen = new Set<number>();
