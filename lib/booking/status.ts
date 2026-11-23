@@ -5,12 +5,15 @@ import type { BookingStatus } from "@/lib/db/schema";
  *
  *   pending_payment → confirmed   Paystack payment verified server-side (lib/payments/settle.ts)
  *   pending_payment → cancelled   patient, hospital, or `system` when the unpaid hold lapses
- *   confirmed → in_progress       both the doctor and the patient have joined the video call
+ *   confirmed → in_progress       the doctor and the patient are in the video call together
  *   confirmed → cancelled         patient (online, until the cut-off) or hospital (any time);
  *                                 a paid booking's payment is flagged for refund
- *   confirmed → completed         automatically, 24 h after the appointment ends
- *   confirmed → no_show           staff
- *   in_progress → completed       the doctor ends the call, or the call's hard stop passes
+ *   confirmed → completed         the daily job: 24 h after the end for bookings without online
+ *                                 payment (no video); for paid ones, only if the call started
+ *   confirmed → no_show           staff, or the daily job when the doctor joined the video call
+ *                                 and the patient never did
+ *   in_progress → completed       the doctor ends the call for both, or the daily job after the
+ *                                 call's hard stop
  *   completed → no_show           staff correction
  *
  * `cancelled` and `no_show` are final. New bookings start as `pending_payment`; bookings made

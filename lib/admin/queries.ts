@@ -7,6 +7,7 @@ import type { Db } from "@/lib/db/client";
 import {
   consultationBookings as bookings,
   type BookingStatus,
+  consultationCalls as calls,
   departments,
   doctors,
   type PaymentReviewReason,
@@ -183,6 +184,19 @@ export type AdminBooking = {
    * then the latest unpaid attempt.
    */
   payment: { status: PaymentStatus; reviewReason: PaymentReviewReason | null; reference: string } | null;
+  /** The video call's attendance, or null if nobody asked for a token yet. */
+  call: AdminCall | null;
+};
+
+export type AdminCall = {
+  doctorJoinedAt: Date | null;
+  patientJoinedAt: Date | null;
+  doctorLeftAt: Date | null;
+  patientLeftAt: Date | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  endedBy: "doctor" | "system" | null;
+  durationSeconds: number | null;
 };
 
 /** Order of importance when a booking has several payment attempts. */
@@ -206,16 +220,39 @@ const adminBookingFields = {
     select json_build_object('status', ${payments.status}, 'reviewReason', ${payments.reviewReason}, 'reference', ${payments.reference})
     from ${payments} where ${payments.bookingId} = ${outerColumn(bookings.id)}
     order by ${paymentRank}, ${payments.createdAt} desc limit 1)`,
+  // Attendance only (no channel name): from consultation_calls, left-joined.
+  callId: calls.bookingId,
+  call: {
+    doctorJoinedAt: calls.doctorJoinedAt,
+    patientJoinedAt: calls.patientJoinedAt,
+    doctorLeftAt: calls.doctorLeftAt,
+    patientLeftAt: calls.patientLeftAt,
+    startedAt: calls.startedAt,
+    endedAt: calls.endedAt,
+    endedBy: calls.endedBy,
+    durationSeconds: calls.durationSeconds,
+  },
 };
+
+/** A selected row as an AdminBooking: `call` is null when there is no call row. */
+function toAdminBooking({ callId, call, ...row }: { callId: string | null; call: AdminCall | null } & Omit<AdminBooking, "call">): AdminBooking {
+  return { ...row, call: callId && call ? call : null };
+}
 
 export type BookingView = "upcoming" | "past";
 
 /** Upcoming bookings (not ended yet, soonest first) or past ones (most recent first), all statuses. */
-export function listAdminBookings(db: Db, _admin: AdminSession, view: BookingView, now = new Date()): Promise<AdminBooking[]> {
-  const query = db.select(adminBookingFields).from(bookings).innerJoin(doctors, eq(bookings.doctorId, doctors.id));
-  return view === "upcoming"
-    ? query.where(gt(bookings.endsAt, now)).orderBy(asc(bookings.startsAt)).limit(LIST_LIMIT)
-    : query.where(lte(bookings.endsAt, now)).orderBy(desc(bookings.startsAt)).limit(LIST_LIMIT);
+export async function listAdminBookings(db: Db, _admin: AdminSession, view: BookingView, now = new Date()): Promise<AdminBooking[]> {
+  const query = db
+    .select(adminBookingFields)
+    .from(bookings)
+    .innerJoin(doctors, eq(bookings.doctorId, doctors.id))
+    .leftJoin(calls, eq(calls.bookingId, bookings.id));
+  const rows =
+    view === "upcoming"
+      ? await query.where(gt(bookings.endsAt, now)).orderBy(asc(bookings.startsAt)).limit(LIST_LIMIT)
+      : await query.where(lte(bookings.endsAt, now)).orderBy(desc(bookings.startsAt)).limit(LIST_LIMIT);
+  return rows.map(toAdminBooking);
 }
 
 async function findAdminBooking(db: Db, id: string): Promise<AdminBooking | null> {
@@ -224,9 +261,10 @@ async function findAdminBooking(db: Db, id: string): Promise<AdminBooking | null
     .select(adminBookingFields)
     .from(bookings)
     .innerJoin(doctors, eq(bookings.doctorId, doctors.id))
+    .leftJoin(calls, eq(calls.bookingId, bookings.id))
     .where(eq(bookings.id, id))
     .limit(1);
-  return row ?? null;
+  return row ? toAdminBooking(row) : null;
 }
 
 /** The actions an admin can take on a booking right now. */

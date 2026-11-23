@@ -65,7 +65,7 @@ lib/
   auth/                  Better Auth config, session guards, password hashing, policy
   booking/               Slots, create/cancel, tokens, statuses, emails, rate limit
   payments/              Paystack client, webhook signature, checkout, settlement, refunds
-  consultation/          Video call access rules, Agora tokens, channels, call screen messages
+  consultation/          Video call access rules, Agora tokens, channels, lifecycle, call screen messages
   account/ doctor/ admin/   Data access for each signed-in area
   email/resend.ts        Sends email through Resend
   data/                  Static content: pricing, FAQs, articles, trust signals
@@ -127,9 +127,10 @@ migrations open their own connection (`lib/db/client.ts`).
 
 5. **Email.** Verify the sending domain in Resend and set the sender in `siteConfig.email.from`.
    Without `RESEND_API_KEY`, bookings still work and the confirmation page shows the manage link.
-6. **Daily job.** `vercel.json` schedules `/api/cron/maintenance` at 03:15 UTC. It marks finished
-   consultations completed, clears expired patient details, and deletes old sessions and
-   rate-limit counters. It refuses requests without `Authorization: Bearer <CRON_SECRET>`.
+6. **Daily job.** `vercel.json` schedules `/api/cron/maintenance` at 03:15 UTC. It closes video
+   calls past their hard stop, marks finished consultations completed (or missed), clears expired
+   patient details, and deletes old sessions and rate-limit counters. It refuses requests without
+   `Authorization: Bearer <CRON_SECRET>`.
 
 ### Local development
 
@@ -271,6 +272,32 @@ the Agora Web SDK (`agora-rtc-sdk-ng`) client-side only (`components/consultatio
 
 Agora's SDK log upload stays off, and in production the browser console shows Agora errors only.
 
+**Lifecycle** (`lib/consultation/lifecycle.ts`, unit-tested). The call screen reports attendance and
+polls the call's state; all three endpoints answer only the booking's own patient or doctor
+(anyone else 404), are limited to 30 requests a minute per user (`siteConfig.consultation`), and
+are never cached:
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST …/attendance` `{"event":"joined"\|"left"}` | "joined" once Agora let the participant in, "left" on Leave, closing the tab or a dropped call (`fetch` with `keepalive`; a beacon would send `Origin: null` under our no-referrer policy). When the second person joins while the first is there, the call has started (`started_at`) and the booking becomes `in_progress`. |
+| `POST …/end` | The doctor's **End for both**, allowed once the patient has been in the call (409 `not_started` before, so an early click can't lock the patient out; 403 for the patient). Closes the call with its duration and completes the booking, in one transaction. Repeating it returns the same result. |
+| `GET …/status` | `{ status, started, ended, endedBy }`, polled every 20 s and at once when the other person leaves, so the patient's screen closes when the doctor ends it. No token is issued after the end. |
+
+Getting a token doesn't count as joining any more: `doctor_joined_at`/`patient_joined_at` are
+the first reported join, and a rejoin clears the participant's `*_left_at`, so "present" means
+joined and not left since. The late-join rule (30 min after the start) uses the reported join.
+
+At the hard stop the daily job closes any open call (by `system`, ending it when the last person
+left, or at the hard stop if a browser never said so):
+
+- A call that started → the booking is `completed`.
+- The doctor joined and the patient never did → `no_show`.
+- The doctor never joined, or the two were never in it at the same time → left as `confirmed`
+  for staff. `/admin/bookings` shows each paid booking's attendance and flags these in red;
+  cancelling one flags its payment for a refund.
+
+The job runs daily, so a call nobody ended can show `in_progress` until the next run.
+
 ### Day-to-day
 
 - **Edit doctors, hours and time off** with `npm run db:studio` (owner connection). Weekly hours
@@ -280,9 +307,11 @@ Agora's SDK log upload stays off, and in production the browser console shows Ag
   (`siteConfig.booking.consultationMinutes`). The database requires the same value
   (`doctors_minutes_check`), so changing it takes a new migration as well as the config.
 - **Booking statuses:** `pending_payment` → `confirmed` (Paystack payment verified) or `cancelled`
-  (patient, staff, or `system` when the 30-minute hold lapses). `confirmed` → `cancelled` (patient
-  online until 2 h before, or staff; a paid booking is flagged for refund), `completed`
-  (automatically 24 h after the end) or `no_show` (staff). `in_progress` (reserved for when both
-  have joined the video call) → `completed`.
+  (patient, staff, or `system` when the 30-minute hold lapses). `confirmed` → `in_progress` (the
+  doctor and the patient are in the video call together), `cancelled` (patient online until 2 h
+  before, or staff; a paid booking is flagged for refund), `completed` (the daily job: 24 h after
+  the end for bookings without online payment, or a started call) or `no_show` (staff, or the
+  daily job when the doctor joined and the patient didn't). `in_progress` → `completed` (the
+  doctor's **End for both**, or the daily job after the hard stop).
 - **Patient data:** only name, email and optional phone are stored. The daily job clears them
   90 days after the appointment or cancellation (`siteConfig.booking.piiRetentionDays`).
