@@ -61,16 +61,16 @@ export async function updateDoctorProfileAction(_previous: ActionState, formData
   });
 }
 
-/** Change the doctor's fee and consultation length. Existing bookings keep the fee they were booked at. */
+/** Change the doctor's fee. Existing bookings keep the fee they were booked at. */
 export async function updateDoctorRatesAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
-  const parsed = doctorRatesSchema.safeParse({ fee: formData.get("fee") ?? "", minutes: formData.get("minutes") ?? "" });
+  const parsed = doctorRatesSchema.safeParse({ fee: formData.get("fee") ?? "" });
   if (!parsed.success) return error(firstIssue(parsed));
-  const { fee, minutes } = parsed.data;
+  const { fee } = parsed.data;
 
   return asDoctor("updateDoctorRates", async (db, doctor) => {
-    if (!(await updateDoctorRates(db, doctor, { consultationFeeCents: fee, consultationMinutes: minutes }))) return FAILED;
+    if (!(await updateDoctorRates(db, doctor, { consultationFeeCents: fee }))) return FAILED;
     refreshDoctorPages();
-    return success("Saved. New bookings use these settings; existing bookings keep their fee.");
+    return success("Saved. New bookings use this fee; existing bookings keep theirs.");
   });
 }
 

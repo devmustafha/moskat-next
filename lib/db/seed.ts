@@ -79,7 +79,7 @@ await withDb(url, async (db) => {
             photo: doctor.photo ?? null,
             consultationFeeCents: doctor.consultationFeeCents,
             currency: siteConfig.currency,
-            consultationMinutes: doctor.consultationMinutes,
+            consultationMinutes: siteConfig.booking.consultationMinutes,
             timeZone: siteConfig.timeZone,
             sortOrder: index,
           };

@@ -24,8 +24,8 @@ export const priceGroups: PriceGroup[] = [
     title: "In-person consultations",
     description: "A specialist appointment at the hospital, including examination and a written plan.",
     items: [
-      { name: "New patient consultation", detail: "45 minutes with a specialist", price: 4_500_000 },
-      { name: "Follow-up consultation", detail: "20–30 minutes, within 6 months of your first visit", price: 3_000_000 },
+      { name: "New patient consultation", detail: "30 minutes with a specialist", price: 4_500_000 },
+      { name: "Follow-up consultation", detail: "30 minutes, within 6 months of your first visit", price: 3_000_000 },
       { name: "Paediatric consultation", detail: "Children under 18, 30 minutes", price: 3_500_000 },
     ],
   },

@@ -284,11 +284,11 @@ export async function updateDoctorProfile(db: Db, doctor: DoctorSession, values:
   return updated.length === 1;
 }
 
-/** Change the doctor's fee (cents) and consultation length. Existing bookings keep the fee they copied. */
+/** Change the doctor's fee (cents). Existing bookings keep the fee they copied. */
 export async function updateDoctorRates(
   db: Db,
   doctor: DoctorSession,
-  values: { consultationFeeCents: number; consultationMinutes: number },
+  values: { consultationFeeCents: number },
 ): Promise<boolean> {
   const updated = await db.update(doctors).set(values).where(eq(doctors.id, doctor.doctorId)).returning({ id: doctors.id });
   return updated.length === 1;

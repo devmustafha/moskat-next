@@ -112,12 +112,12 @@ export async function findLinkedAccount(db: Db, _admin: AdminSession, doctorId: 
 
 // Pricing ------------------------------------------------------------------------------------
 
-/** Change a doctor's online consultation fee (cents) and length. New bookings use them; existing ones keep theirs. */
+/** Change a doctor's online consultation fee (cents). New bookings use it; existing ones keep theirs. */
 export async function updateDoctorPricing(
   db: Db,
   _admin: AdminSession,
   doctorId: number,
-  values: { consultationFeeCents: number; consultationMinutes: number },
+  values: { consultationFeeCents: number },
 ): Promise<boolean> {
   const updated = await db.update(doctors).set(values).where(eq(doctors.id, doctorId)).returning({ id: doctors.id });
   return updated.length === 1;

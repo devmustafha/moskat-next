@@ -163,21 +163,20 @@ const pricingSchema = z.object({
     }
     return cents;
   }),
-  minutes: z.coerce.number().int("Whole minutes only.").min(10, "At least 10 minutes.").max(120, "At most 120 minutes."),
 });
 
-/** Change a doctor's fee and consultation length. Existing bookings keep the fee they were booked at. */
+/** Change a doctor's fee. Existing bookings keep the fee they were booked at. Every doctor's length is siteConfig's. */
 export async function updatePricingAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = pricingSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return error(firstIssue(parsed));
-  const { doctorId, fee, minutes } = parsed.data;
+  const { doctorId, fee } = parsed.data;
 
   return asAdmin("updatePricing", async (db, admin) => {
-    if (!(await updateDoctorPricing(db, admin, doctorId, { consultationFeeCents: fee, consultationMinutes: minutes }))) {
+    if (!(await updateDoctorPricing(db, admin, doctorId, { consultationFeeCents: fee }))) {
       return error("Doctor not found.");
     }
     revalidatePath("/admin/pricing");
-    return success("Saved. New bookings use these settings.");
+    return success("Saved. New bookings use this fee.");
   });
 }
 

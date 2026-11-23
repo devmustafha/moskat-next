@@ -167,14 +167,14 @@ are `patient` (public sign-up), `doctor` and `admin` (assigned by an admin).
 - **Doctors** see `/doctor/queue` (today's and upcoming consultations), `/doctor` (weekly hours and
   time off) and `/doctor/patients/<id>`. They edit their own weekly hours on `/doctor/hours` (from
   today; existing bookings are kept and listed if the new hours don't cover them) and their bio,
-  qualifications, languages, interests, experience, fee and length on `/doctor/profile`. Name,
+  qualifications, languages, interests, experience and fee on `/doctor/profile`. Name,
   specialty, department, photo and time off stay with the hospital. A doctor account must be linked to an active
   doctor profile (`doctors.user_id`); until then it only sees a "not linked yet" page. A patient's
   page needs a non-cancelled booking with that doctor and shows only that doctor's bookings;
   anyone else is a 404.
 - **Admins** use `/admin/bookings` (cancel on the hospital's behalf, mark as missed),
   `/admin/doctors` (create a doctor's account and link it to their profile; block or unblock it),
-  `/admin/pricing` (fee and length) and `/admin/departments` (page text, listed or not). Admins
+  `/admin/pricing` (fee) and `/admin/departments` (page text, listed or not). Admins
   can't impersonate, delete accounts or open the doctor and patient areas. Changing an account's
   role away from `doctor` unlinks its profile. Known limit: an admin could still create a doctor
   account for themselves, so the separation holds against an admin's session, not against an admin.
@@ -276,6 +276,9 @@ Agora's SDK log upload stays off, and in production the browser console shows Ag
 - **Edit doctors, hours and time off** with `npm run db:studio` (owner connection). Weekly hours
   (`doctor_availability`) are local wall-clock times in the doctor's `time_zone`; time off
   (`doctor_time_off`) is a UTC time range.
+- **Consultation length:** every consultation is 30 minutes, for every doctor
+  (`siteConfig.booking.consultationMinutes`). The database requires the same value
+  (`doctors_minutes_check`), so changing it takes a new migration as well as the config.
 - **Booking statuses:** `pending_payment` → `confirmed` (Paystack payment verified) or `cancelled`
   (patient, staff, or `system` when the 30-minute hold lapses). `confirmed` → `cancelled` (patient
   online until 2 h before, or staff; a paid booking is flagged for refund), `completed`
