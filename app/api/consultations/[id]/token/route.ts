@@ -1,7 +1,7 @@
 import { getConsultationActorOn } from "@/lib/auth/session";
 import { isConsultationTokenRateLimited } from "@/lib/booking/rate-limit";
 import { AGORA_UID, decideAccess, tokenLifetimeSeconds } from "@/lib/consultation/access";
-import { AgoraNotConfiguredError, buildRtcToken } from "@/lib/consultation/agora";
+import { AgoraNotConfiguredError, buildRtcToken, mediaEncryptionFor } from "@/lib/consultation/agora";
 import type { TokenErrorCode, TokenGrant } from "@/lib/consultation/call-ui";
 import { isSameOrigin, loggableId, NO_STORE } from "@/lib/consultation/http";
 import { findConsultation, openCallFor } from "@/lib/consultation/queries";
@@ -15,7 +15,8 @@ import { runWithDb } from "@/lib/db/server";
  * Every request re-checks, on the server: a signed-in session; that the caller is this booking's
  * patient or doctor (anyone else: 404, as if it didn't exist); that it's paid and confirmed (or in
  * progress) and not ended; and the join window (lib/consultation/access.ts). The channel, uid and
- * role come from the server, never from the request. Tokens are never logged.
+ * role come from the server, never from the request. The response also carries the call's media
+ * encryption secret and salt (the same for both participants). Tokens and keys are never logged.
  *
  * Node.js runtime: agora-token needs Node's crypto and zlib.
  */
@@ -64,6 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const uid = AGORA_UID[consultation.role];
       const ttl = tokenLifetimeSeconds(now, decision.hardStopAt);
       const { appId, token } = buildRtcToken(channelName, uid, ttl);
+      const encryption = mediaEncryptionFor(channelName);
 
       const grant: TokenGrant = {
         appId,
@@ -81,12 +83,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           hardStopAt: decision.hardStopAt.toISOString(),
           status: consultation.status,
         },
+        encryption,
       };
       return Response.json(grant, { headers: NO_STORE });
     });
   } catch (error) {
     if (error instanceof AgoraNotConfiguredError) {
-      console.error("consultation token: Agora is not configured");
+      // The message names the missing setting only (never its value).
+      console.error(`consultation token: ${error.message}`);
       return fail("unavailable");
     }
     // Booking id only; never the token, channel or query details.

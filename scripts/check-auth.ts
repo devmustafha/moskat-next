@@ -316,6 +316,13 @@ try {
         `${doctor.status} uid=${String(doctor.body.uid)}`,
       );
       check("token: response is never cached", patient.cacheControl.includes("no-store"), patient.cacheControl);
+      const pe = patient.body.encryption as { mode?: string; secret?: string; salt?: string } | undefined;
+      const de = doctor.body.encryption as typeof pe;
+      check(
+        "token: media encryption is aes-256-gcm2, the same secret and salt for both",
+        pe?.mode === "aes-256-gcm2" && typeof pe.secret === "string" && pe.secret.length >= 32 && typeof pe.salt === "string" && pe.secret === de?.secret && pe.salt === de?.salt,
+        `mode=${String(pe?.mode)} same=${String(pe?.secret === de?.secret && pe?.salt === de?.salt)}`,
+      );
 
       // Attendance, status and "End for both" (needs the call row the tokens created).
       const callApi = async (visitor: Visitor, bookingId: string, action: "attendance" | "end" | "status", body?: unknown, headers?: Record<string, string>) => {

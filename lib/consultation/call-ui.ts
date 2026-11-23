@@ -19,6 +19,8 @@ export type TokenGrant = {
   /** The other participant's name; the patient's is null once their details are purged. */
   peerName: string | null;
   call: { startsAt: string; endsAt: string; opensAt: string; hardStopAt: string; status: string };
+  /** Agora built-in media encryption for this call: set before every join (lib/consultation/media-key.ts). */
+  encryption: { mode: "aes-256-gcm2"; secret: string; salt: string };
 };
 
 /** `error` in the token endpoint's non-200 responses. */
@@ -248,3 +250,14 @@ export function describeDisconnect(reason: string | undefined): ProblemText | nu
       return { message: "You lost your connection to the call.", retry: true };
   }
 }
+
+/** The salt from the token response (base64) as the bytes the Web SDK's setEncryptionConfig takes. */
+export function base64ToBytes(base64: string): Uint8Array {
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+/** Shown when the other person's audio or video can't be decrypted (their page has other settings). */
+export const DECRYPTION_PROBLEM = "We couldn’t decode the other person’s audio or video. Ask them to reload the page, then reload yours.";

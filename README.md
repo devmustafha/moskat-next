@@ -124,6 +124,7 @@ migrations open their own connection (`lib/db/client.ts`).
    | `CRON_SECRET` | Random string; Vercel Cron sends it to the daily job |
    | `PAYSTACK_SECRET_KEY` | `sk_test_…` for Preview, `sk_live_…` for Production (see Payments) |
    | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` | Agora project with App Certificate enabled (see Video consultations) |
+   | `CONSULTATION_MEDIA_SECRET` | `openssl rand -base64 32`, one per environment: video call media encryption |
 
 5. **Email.** Verify the sending domain in Resend and set the sender in `siteConfig.email.from`.
    Without `RESEND_API_KEY`, bookings still work and the confirmation page shows the manage link.
@@ -250,9 +251,18 @@ Each booking's call gets a random 32-hex-character channel name (`consultation_c
 always joins as uid 1 and the patient as uid 2, baked into the token. Tokens last 10 minutes
 (never past the hard stop), with privileges expiring at the same time. There's no recording.
 
+Media is end-to-end encrypted with Agora's built-in encryption (`aes-256-gcm2`), so Agora's servers
+only relay ciphertext. Each call's secret and salt are HMAC-SHA256 derivations of
+`CONSULTATION_MEDIA_SECRET` and the channel name (`lib/consultation/media-key.ts`): the same for both
+participants, different for every call, and never stored or logged. They come with each token, and
+the call screen sets them before every join (the SDK turns encryption off on leave). The secret is
+deliberately not derived from the App Certificate, which Agora also knows. Someone whose page has
+other settings (an old copy open during a deploy) sees a "couldn't decode" notice; reloading fixes it.
+
 Setup: create an Agora project with **App Certificate enabled** (one for Preview and one for
-Production), and set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Without them the endpoint answers
-503. Requests must come from the site's own origin (`BETTER_AUTH_URL`, or the deployment's URL).
+Production), and set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`, plus `CONSULTATION_MEDIA_SECRET`
+(`openssl rand -base64 32`, a different one per environment). Without any of them the endpoint
+answers 503, so a call never starts unencrypted. Requests must come from the site's own origin (`BETTER_AUTH_URL`, or the deployment's URL).
 
 The call screen is `/consultations/<bookingId>` (patient or doctor only; anyone else 404, admins
 403). Patients reach it from their booking page, doctors from **Join call** in their queue. It runs
