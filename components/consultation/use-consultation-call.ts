@@ -12,6 +12,7 @@ import AgoraRTC, {
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConsultationRole } from "@/lib/consultation/access";
 import {
+  base64ToBytes,
   CALL_ERROR_CODES,
   type CallErrorCode,
   type CallStatus,
@@ -21,6 +22,7 @@ import {
   describeDisconnect,
   describeJoinError,
   describeTokenProblem,
+  DECRYPTION_PROBLEM,
   type ProblemText,
   type SignalLevel,
   signalLevel,
@@ -51,6 +53,9 @@ import { siteConfig } from "@/lib/site";
  * - While in the call, GET …/status is polled (and asked at once when the other person leaves), so
  *   when the doctor ends the consultation for both, the patient's screen closes the call too.
  *   The doctor's "End for both" is POST …/end, allowed once the call has started.
+ * - Media is encrypted with Agora's built-in encryption (aes-256-gcm2): the token response carries
+ *   the call's secret and salt, set before every join. The SDK turns encryption off when leaving,
+ *   so the token-expiry rejoin sets it again.
  * - Effects are guarded by a generation counter, so React's dev double-mount doesn't leak tracks.
  */
 
@@ -126,6 +131,11 @@ async function requestEnd(bookingId: string): Promise<EndResponse> {
   } catch {
     return { ok: false, problem: "network" };
   }
+}
+
+/** Turn on the call's media encryption. Must come before each client.join (Web SDK 4.7+ resets it on leave). */
+function applyEncryption(client: IAgoraRTCClient, { encryption }: TokenGrant) {
+  client.setEncryptionConfig(encryption.mode, encryption.secret, base64ToBytes(encryption.salt));
 }
 
 /** The AgoraRTCError code, if this is one. */
@@ -382,6 +392,7 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
       }
       const { appId, channel, token, uid } = result.grant;
       if (client.connectionState !== "DISCONNECTED") await client.leave();
+      applyEncryption(client, result.grant);
       await client.join(appId, channel, token, uid);
       grantRef.current = result.grant;
       await publishLocal(client);
@@ -447,6 +458,8 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
         if (text) void finish(text.retry ? "left" : "over", text);
       });
       client.on("network-quality", (stats) => setSignal(signalLevel(stats)));
+      // Their page uses other encryption settings (e.g. an old copy of the page): we'd see nothing.
+      client.on("crypt-error", () => setNotice(DECRYPTION_PROBLEM));
       client.on("token-privilege-will-expire", () => void renew());
       client.on("token-privilege-did-expire", () => void rejoin());
     },
@@ -476,6 +489,7 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
     setGrant(result.grant);
     listen(client, peerUid);
     try {
+      applyEncryption(client, result.grant);
       await client.join(appId, channel, token, uid);
       if (gen.current !== mine || clientRef.current !== client) return void (await client.leave().catch(() => {}));
       await publishLocal(client);

@@ -1,5 +1,6 @@
 import "server-only";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
+import { deriveMediaEncryption, MIN_MEDIA_SECRET_LENGTH } from "./media-key";
 
 /**
  * Agora RTC tokens (AccessToken2), built only on the server with the App Certificate.
@@ -11,8 +12,8 @@ import { RtcRole, RtcTokenBuilder } from "agora-token";
  */
 
 export class AgoraNotConfiguredError extends Error {
-  constructor() {
-    super("Video calls not configured (AGORA_APP_ID / AGORA_APP_CERTIFICATE are not set)");
+  constructor(what = "AGORA_APP_ID / AGORA_APP_CERTIFICATE are not set") {
+    super(`Video calls not configured (${what})`);
     this.name = "AgoraNotConfiguredError";
   }
 }
@@ -35,4 +36,15 @@ export function buildRtcToken(channel: string, uid: number, ttlSeconds: number) 
   const { appId, appCertificate } = credentials();
   const token = RtcTokenBuilder.buildTokenWithUid(appId, appCertificate, channel, uid, RtcRole.PUBLISHER, ttlSeconds, ttlSeconds);
   return { appId, token };
+}
+
+/**
+ * The call's media encryption settings (lib/consultation/media-key.ts), given to its two
+ * participants with their token. Without CONSULTATION_MEDIA_SECRET no token is issued at all, so
+ * a call never runs unencrypted by mistake. Never logged.
+ */
+export function mediaEncryptionFor(channel: string) {
+  const secret = process.env.CONSULTATION_MEDIA_SECRET?.trim();
+  if (!secret || secret.length < MIN_MEDIA_SECRET_LENGTH) throw new AgoraNotConfiguredError("CONSULTATION_MEDIA_SECRET is not set");
+  return deriveMediaEncryption(secret, channel);
 }
