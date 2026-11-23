@@ -47,6 +47,10 @@ export const siteConfig = {
     tokenTtlSeconds: 600,
     /** Token requests (joins and renewals) per minute per signed-in user. */
     tokenRequestsPerMinute: 10,
+    /** Attendance reports, status checks and "end" requests per minute per signed-in user. */
+    callRequestsPerMinute: 30,
+    /** How often the call screen checks whether the consultation has ended (and has started). */
+    statusPollSeconds: 20,
   },
 
   auth: {

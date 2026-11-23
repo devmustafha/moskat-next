@@ -47,6 +47,77 @@ export const TOKEN_ERROR_CODES: readonly TokenErrorCode[] = [
   "unavailable",
 ];
 
+/** 200 from GET /api/consultations/<id>/status: polled during the call. */
+export type CallStatus = {
+  status: string;
+  /** Both participants have been in the call together (the doctor can end it for both). */
+  started: boolean;
+  ended: boolean;
+  endedBy: "doctor" | "system" | null;
+};
+
+/** 200 from POST /api/consultations/<id>/end. */
+export type CallEnded = { status: string; endedAt: string; durationSeconds: number | null };
+
+/**
+ * `error` in the non-200 responses of the attendance, status and end endpoints.
+ * no_call: nobody has had a token for this booking yet. doctor_only: a patient asked to end it.
+ * not_started: the patient hasn't been in the call yet. not_active: cancelled, unpaid or finished.
+ */
+export type CallErrorCode =
+  | "forbidden_origin"
+  | "bad_request"
+  | "signed_out"
+  | "not_found"
+  | "rate_limited"
+  | "no_call"
+  | "doctor_only"
+  | "not_started"
+  | "not_active"
+  | "ended"
+  | "closed"
+  | "unavailable";
+
+export const CALL_ERROR_CODES: readonly CallErrorCode[] = [
+  "forbidden_origin",
+  "bad_request",
+  "signed_out",
+  "not_found",
+  "rate_limited",
+  "no_call",
+  "doctor_only",
+  "not_started",
+  "not_active",
+  "ended",
+  "closed",
+  "unavailable",
+];
+
+/** What the doctor is told when "End for both" is refused (or fails). */
+export function describeEndProblem(code: CallErrorCode | "network"): string {
+  switch (code) {
+    case "not_started":
+      return "You can end the consultation for both once your patient has joined. To step away, use Leave.";
+    case "ended":
+    case "not_active":
+      return "This consultation has already ended.";
+    case "rate_limited":
+      return "Too many attempts in a short time. Wait a minute, then try again.";
+    case "network":
+      return "We couldn’t reach Moskat. Check your internet connection, then try again.";
+    default:
+      return "We couldn’t end the consultation. Try again, or use Leave.";
+  }
+}
+
+/** Shown once the call is over because it was ended (by the doctor's button, or at the hard stop). */
+export function describeCallEnded(role: ConsultationRole, endedBy: CallStatus["endedBy"]): ProblemText {
+  if (endedBy === "doctor") {
+    return { message: role === "doctor" ? "You ended the consultation for both of you." : "Your doctor ended the consultation.", retry: false };
+  }
+  return { message: "This consultation has ended.", retry: false };
+}
+
 /** Why a token couldn't be had: the endpoint's error, or no response at all. */
 export type TokenProblem = TokenErrorCode | "network";
 

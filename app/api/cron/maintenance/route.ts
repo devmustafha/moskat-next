@@ -4,9 +4,10 @@ import { runWithDb } from "@/lib/db/server";
 import { safeErrorSummary } from "@/lib/db/errors";
 
 /**
- * The daily job (vercel.json `crons`): marks finished consultations completed, clears expired
- * patient details, and deletes old sessions and rate-limit counters. Vercel Cron calls it with
- * `Authorization: Bearer <CRON_SECRET>`; any other caller gets 401.
+ * The daily job (vercel.json `crons`): closes finished video calls, marks finished consultations
+ * completed (or missed), clears expired patient details, and deletes old sessions and rate-limit
+ * counters. Vercel Cron calls it with `Authorization: Bearer <CRON_SECRET>`; any other caller
+ * gets 401.
  */
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     const result = await runWithDb((db) => runMaintenance(db, new Date()));
     // Counts only: never log patient details.
     console.log(
-      `maintenance: expiredHolds=${result.expiredHolds} completed=${result.completed} purged=${result.purged} expiredSessions=${result.expiredSessions}`,
+      `maintenance: expiredHolds=${result.expiredHolds} callsClosed=${result.callsClosed} completed=${result.completed} missed=${result.missed} purged=${result.purged} expiredSessions=${result.expiredSessions}`,
     );
     return Response.json(result);
   } catch (error) {

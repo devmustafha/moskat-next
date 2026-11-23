@@ -3,10 +3,10 @@ import { isConsultationTokenRateLimited } from "@/lib/booking/rate-limit";
 import { AGORA_UID, decideAccess, tokenLifetimeSeconds } from "@/lib/consultation/access";
 import { AgoraNotConfiguredError, buildRtcToken } from "@/lib/consultation/agora";
 import type { TokenErrorCode, TokenGrant } from "@/lib/consultation/call-ui";
+import { isSameOrigin, loggableId, NO_STORE } from "@/lib/consultation/http";
 import { findConsultation, openCallFor } from "@/lib/consultation/queries";
 import { safeErrorSummary } from "@/lib/db/errors";
 import { runWithDb } from "@/lib/db/server";
-import { siteOrigin } from "@/lib/origin";
 
 /**
  * POST /api/consultations/<bookingId>/token: an Agora RTC token for the booking's video call.
@@ -37,20 +37,12 @@ const STATUS: Record<ErrorCode, number> = {
   unavailable: 503,
 };
 
-const NO_STORE = { "cache-control": "private, no-store" };
-
 function fail(error: ErrorCode, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) {
   return Response.json({ error, ...extra }, { status: STATUS[error], headers: { ...NO_STORE, ...headers } });
 }
 
-/** Same-origin requests only (the session cookie is SameSite=Lax; this is the second guard). */
-function sameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  return origin !== null && origin === new URL(siteOrigin()).origin;
-}
-
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!sameOrigin(request)) return fail("forbidden_origin");
+  if (!isSameOrigin(request)) return fail("forbidden_origin");
   const { id } = await params;
   const now = new Date();
 
@@ -68,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return fail(decision.reason, decision.reason === "too_early" ? { opensAt: decision.opensAt.toISOString() } : {});
       }
 
-      const { channelName } = await openCallFor(db, consultation, now);
+      const { channelName } = await openCallFor(db, consultation);
       const uid = AGORA_UID[consultation.role];
       const ttl = tokenLifetimeSeconds(now, decision.hardStopAt);
       const { appId, token } = buildRtcToken(channelName, uid, ttl);
@@ -98,7 +90,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return fail("unavailable");
     }
     // Booking id only; never the token, channel or query details.
-    console.error(`consultation token failed for booking ${/^[0-9a-f-]{36}$/i.test(id) ? id : "(invalid id)"}: ${safeErrorSummary(error)}`);
+    console.error(`consultation token failed for booking ${loggableId(id)}: ${safeErrorSummary(error)}`);
     return fail("unavailable");
   }
 }

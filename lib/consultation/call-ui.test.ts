@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { describeDeviceProblem, describeDisconnect, describeJoinError, describeTokenProblem, formatCountdown, signalLevel, TOKEN_ERROR_CODES } from "./call-ui";
+import {
+  CALL_ERROR_CODES,
+  describeCallEnded,
+  describeDeviceProblem,
+  describeDisconnect,
+  describeEndProblem,
+  describeJoinError,
+  describeTokenProblem,
+  formatCountdown,
+  signalLevel,
+  TOKEN_ERROR_CODES,
+} from "./call-ui";
 
 const timeZone = "Africa/Lagos";
 
@@ -88,5 +99,23 @@ describe("describeDisconnect", () => {
   it("offers a rejoin after a dropped connection", () => {
     expect(describeDisconnect("NETWORK_ERROR")).toMatchObject({ retry: true });
     expect(describeDisconnect("LICENSE_EXPIRED")).toMatchObject({ retry: true });
+  });
+});
+
+describe("describeEndProblem", () => {
+  it("has words for every call endpoint error and for no response", () => {
+    for (const code of [...CALL_ERROR_CODES, "network" as const]) expect(describeEndProblem(code).length).toBeGreaterThan(10);
+  });
+
+  it("tells the doctor to wait for the patient before ending for both", () => {
+    expect(describeEndProblem("not_started")).toContain("once your patient has joined");
+  });
+});
+
+describe("describeCallEnded", () => {
+  it("tells each side who ended it", () => {
+    expect(describeCallEnded("patient", "doctor").message).toBe("Your doctor ended the consultation.");
+    expect(describeCallEnded("doctor", "doctor").message).toBe("You ended the consultation for both of you.");
+    expect(describeCallEnded("patient", "system")).toEqual({ message: "This consultation has ended.", retry: false });
   });
 });

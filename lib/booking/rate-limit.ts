@@ -5,8 +5,9 @@ import { siteConfig } from "@/lib/site";
 
 /**
  * Request limits counted in the `rate_limits` table that Better Auth also uses (keys here start
- * with "booking:" or "consult-token:", so they never collide with Better Auth's). Counting in
- * Postgres works across all of Vercel's server instances; the daily job deletes rows older than a day.
+ * with "booking:", "consult-token:" or "consult-call:", so they never collide with Better Auth's).
+ * Counting in Postgres works across all of Vercel's server instances; the daily job deletes rows
+ * older than a day.
  */
 
 const WINDOW_MS = 60_000;
@@ -39,4 +40,9 @@ export function isBookingRateLimited(db: Db, ip: string, now = Date.now()) {
 /** Video-call token requests (joins and renewals) per signed-in user. */
 export function isConsultationTokenRateLimited(db: Db, userId: string, now = Date.now()) {
   return isRateLimited(db, `consult-token:${userId}`, siteConfig.consultation.tokenRequestsPerMinute, now);
+}
+
+/** Video-call attendance reports, status checks and "end" requests per signed-in user. */
+export function isConsultationCallRateLimited(db: Db, userId: string, now = Date.now()) {
+  return isRateLimited(db, `consult-call:${userId}`, siteConfig.consultation.callRequestsPerMinute, now);
 }

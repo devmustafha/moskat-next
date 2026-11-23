@@ -9,8 +9,9 @@
  *
  * Uses the owner DATABASE_URL from .env for setup, so it must point at the database behind
  * `--base-url`. It refuses to run against production (DATABASE_URL_MAIN, or PRODUCTION_URL if set).
- * It runs the daily maintenance job once, and ends by tripping the sign-in rate limit, which
- * blocks sign-in from this machine for a minute.
+ * When the site can issue Agora tokens, it also checks the call's attendance, status and "End for
+ * both" endpoints. It runs the daily maintenance job once, and ends by tripping the sign-in rate
+ * limit, which blocks sign-in from this machine for a minute.
  */
 import { randomBytes } from "node:crypto";
 import { parseArgs } from "node:util";
@@ -315,6 +316,68 @@ try {
         `${doctor.status} uid=${String(doctor.body.uid)}`,
       );
       check("token: response is never cached", patient.cacheControl.includes("no-store"), patient.cacheControl);
+
+      // Attendance, status and "End for both" (needs the call row the tokens created).
+      const callApi = async (visitor: Visitor, bookingId: string, action: "attendance" | "end" | "status", body?: unknown, headers?: Record<string, string>) => {
+        const path = `/api/consultations/${bookingId}/${action}`;
+        const response = action === "status" ? await visitor.request(path, { headers }) : await visitor.request(path, { method: "POST", body: body ?? {}, headers });
+        const json = response.status === 204 ? {} : ((await response.json().catch(() => ({}))) as Record<string, unknown>);
+        return { status: response.status, body: json, cacheControl: response.headers.get("cache-control") ?? "" };
+      };
+      const joined = { event: "joined" };
+
+      let c = await callApi(new Visitor(), live.id, "attendance", joined);
+      check("attendance: signed out → 401", c.status === 401, `${c.status}`);
+      c = await callApi(visitors.A, live.id, "attendance", joined, { origin: "https://evil.example" });
+      check("attendance: from another origin → 403", c.status === 403, `${c.status}`);
+      c = await callApi(visitors.A, live.id, "attendance", { event: "teleported" });
+      check("attendance: unknown event → 400", c.status === 400, `${c.status}`);
+      c = await callApi(visitors.B, live.id, "attendance", joined);
+      check("attendance: another patient → 404", c.status === 404, `${c.status}`);
+      c = await callApi(visitors.A, AX.id, "attendance", joined);
+      check("attendance: before any token → 409 no_call", c.status === 409 && c.body.error === "no_call", `${c.status} ${String(c.body.error)}`);
+
+      c = await callApi(visitors.X, live.id, "attendance", joined);
+      check("attendance: the doctor joins → 204", c.status === 204, `${c.status}`);
+      c = await callApi(visitors.X, live.id, "end");
+      check("end: before the patient joined → 409 not_started", c.status === 409 && c.body.error === "not_started", `${c.status} ${String(c.body.error)}`);
+      c = await callApi(visitors.A, live.id, "status");
+      check("status: not started yet", c.status === 200 && c.body.started === false && c.body.ended === false, `${c.status} ${JSON.stringify(c.body)}`);
+
+      c = await callApi(visitors.A, live.id, "attendance", joined);
+      check("attendance: the patient joins → 204", c.status === 204, `${c.status}`);
+      const [afterJoin] = await sql<{ status: string; started: boolean }>(
+        "select b.status, c.started_at is not null as started from consultation_bookings b join consultation_calls c on c.booking_id = b.id where b.id = $1",
+        [live.id],
+      );
+      check("attendance: both in the call → booking in_progress, started_at set", afterJoin?.status === "in_progress" && afterJoin.started, JSON.stringify(afterJoin));
+      c = await callApi(visitors.X, live.id, "status");
+      check("status: started, not ended, never cached", c.status === 200 && c.body.started === true && c.body.ended === false && c.cacheControl.includes("no-store"), `${c.status} ${JSON.stringify(c.body)}`);
+      c = await callApi(visitors.Y, live.id, "status");
+      check("status: another doctor → 404", c.status === 404, `${c.status}`);
+
+      c = await callApi(visitors.A, live.id, "end");
+      check("end: the patient → 403 doctor_only", c.status === 403 && c.body.error === "doctor_only", `${c.status} ${String(c.body.error)}`);
+      c = await callApi(visitors.Y, live.id, "end");
+      check("end: another doctor → 404", c.status === 404, `${c.status}`);
+      c = await callApi(visitors.X, live.id, "end", {}, { origin: "https://evil.example" });
+      check("end: from another origin → 403", c.status === 403, `${c.status}`);
+      const ended = await callApi(visitors.X, live.id, "end");
+      check("end: the doctor ends it for both → 200 completed", ended.status === 200 && ended.body.status === "completed" && typeof ended.body.durationSeconds === "number", `${ended.status} ${JSON.stringify(ended.body)}`);
+      c = await callApi(visitors.X, live.id, "end");
+      check("end: repeating it returns the same end", c.status === 200 && c.body.endedAt === ended.body.endedAt, `${c.status} ${JSON.stringify(c.body)}`);
+
+      c = await callApi(visitors.A, live.id, "status");
+      check("status: the patient sees it ended by the doctor", c.status === 200 && c.body.ended === true && c.body.endedBy === "doctor", `${c.status} ${JSON.stringify(c.body)}`);
+      r = await tokenFor(visitors.A, live.id);
+      check("token: after the end → 409 ended", r.status === 409 && r.body.error === "ended", `${r.status} ${String(r.body.error)}`);
+      c = await callApi(visitors.A, live.id, "attendance", joined);
+      check("attendance: joining after the end → 409 ended", c.status === 409 && c.body.error === "ended", `${c.status} ${String(c.body.error)}`);
+      const [afterEnd] = await sql<{ status: string; ended_by: string; patient_left: boolean }>(
+        "select b.status, c.ended_by, c.patient_left_at is not null as patient_left from consultation_bookings b join consultation_calls c on c.booking_id = b.id where b.id = $1",
+        [live.id],
+      );
+      check("end: booking completed, ended by the doctor, patient marked left", afterEnd?.status === "completed" && afterEnd.ended_by === "doctor" && afterEnd.patient_left, JSON.stringify(afterEnd));
     }
   }
 
@@ -379,9 +442,29 @@ try {
     // The daily job deletes sessions that expired over a day ago. (X's session is still in the
     // table: the absolute limit is enforced by our wrapper, which doesn't delete it.)
     await sql("update sessions set expires_at = now() - interval '2 days' where user_id = $1", [ids.X]);
+
+    // A paid consultation two days ago that only the doctor joined: the job closes its call and
+    // marks it missed.
+    const past = await insertBooking(slugX, "A", "confirmed", 4, new Date(Math.floor(Date.now() / 60_000) * 60_000 - 2 * 86_400_000).toISOString());
+    await sql(
+      `insert into payments (booking_id, reference, amount_minor, currency, status, paid_at)
+       select id, 'CHK-PAY-' || reference, fee_cents, currency, 'succeeded', now() from consultation_bookings where id = $1`,
+      [past.id],
+    );
+    await sql(
+      `insert into consultation_calls (booking_id, channel_name, doctor_joined_at, doctor_left_at)
+       select id, md5(random()::text), starts_at - interval '2 minutes', ends_at from consultation_bookings where id = $1`,
+      [past.id],
+    );
+
     const result = await withDb(DATABASE_URL, (db) => runMaintenance(db, new Date()));
     const [{ left }] = await sql<{ left: number }>("select count(*)::int as left from sessions where user_id = $1", [ids.X]);
     check("daily job deletes long-expired sessions", left === 0 && result.expiredSessions >= 1, `deleted ${result.expiredSessions}, ${left} left`);
+    const [closed] = await sql<{ status: string; ended_by: string | null }>(
+      "select b.status, c.ended_by from consultation_bookings b join consultation_calls c on c.booking_id = b.id where b.id = $1",
+      [past.id],
+    );
+    check("daily job: a call only the doctor joined is closed and the booking missed", closed?.status === "no_show" && closed.ended_by === "system", JSON.stringify(closed));
   }
 
   // Abuse protection.
