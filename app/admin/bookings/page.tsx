@@ -8,6 +8,7 @@ import { Container } from "@/components/ui/container";
 import { PageHeader } from "@/components/ui/page-header";
 import { type AdminBooking, adminActionsFor, type BookingView, listAdminBookings } from "@/lib/admin/queries";
 import { requireAdmin } from "@/lib/auth/session";
+import { attendanceSummary } from "@/lib/consultation/lifecycle";
 import type { PaymentReviewReason } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/server";
 import { formatPrice, formatSlot } from "@/lib/format";
@@ -57,6 +58,13 @@ function PaymentBadge({ payment }: { payment: AdminBooking["payment"] }) {
       {label}
     </span>
   );
+}
+
+/** The video call's attendance in one line; in alert colours when staff should act (the doctor didn't join). */
+function Attendance({ booking, now }: { booking: AdminBooking; now: Date }) {
+  const summary = attendanceSummary({ ...booking, paid: booking.payment?.status === "succeeded" }, booking.call, booking.doctor.timeZone, now);
+  if (!summary) return null;
+  return <span className={cn("text-caption", summary.alert ? "font-medium text-alert" : "text-ink-muted")}>{summary.text}</span>;
 }
 
 const views: { view: BookingView; label: string; href: string }[] = [
@@ -130,6 +138,7 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
                     {booking.payment && booking.payment.status !== "initialized" && (
                       <span className="text-caption text-ink-muted">Paystack reference {booking.payment.reference}</span>
                     )}
+                    <Attendance booking={booking} now={now} />
                   </div>
                   <div className="flex flex-wrap items-start gap-3">
                     {booking.payment?.status === "needs_review" && (

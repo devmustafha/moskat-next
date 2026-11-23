@@ -12,7 +12,12 @@ import AgoraRTC, {
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConsultationRole } from "@/lib/consultation/access";
 import {
+  CALL_ERROR_CODES,
+  type CallErrorCode,
+  type CallStatus,
+  describeCallEnded,
   describeDeviceProblem,
+  describeEndProblem,
   describeDisconnect,
   describeJoinError,
   describeTokenProblem,
@@ -23,6 +28,8 @@ import {
   type TokenGrant,
   type TokenProblem,
 } from "@/lib/consultation/call-ui";
+import type { AttendanceEvent } from "@/lib/consultation/lifecycle";
+import { siteConfig } from "@/lib/site";
 
 /**
  * One participant's side of a consultation video call, on the Agora Web SDK (4.x).
@@ -38,6 +45,12 @@ import {
  *   off); Agora says never to mix the two on one track.
  * - Leaving, a dropped call, closing the tab (pagehide) or unmounting closes both tracks and
  *   leaves the channel, so the camera never stays on.
+ * - Attendance: "joined" is reported once Agora has let us in, "left" whenever we leave the channel
+ *   (fetch with keepalive, so it still goes out while the tab closes). The server uses it to start
+ *   the call (both present → in progress) and to close it fairly.
+ * - While in the call, GET …/status is polled (and asked at once when the other person leaves), so
+ *   when the doctor ends the consultation for both, the patient's screen closes the call too.
+ *   The doctor's "End for both" is POST …/end, allowed once the call has started.
  * - Effects are guarded by a generation counter, so React's dev double-mount doesn't leak tracks.
  */
 
@@ -71,6 +84,45 @@ async function requestToken(bookingId: string): Promise<TokenResult> {
     const { error, opensAt } = (body ?? {}) as { error?: string; opensAt?: string };
     const problem = TOKEN_ERROR_CODES.find((code) => code === error) ?? "unavailable";
     return { ok: false, problem, opensAt: opensAt ? new Date(opensAt) : undefined };
+  } catch {
+    return { ok: false, problem: "network" };
+  }
+}
+
+/** Tell the server we joined or left. keepalive: it still goes out while the page is closing. */
+async function postAttendance(bookingId: string, event: AttendanceEvent) {
+  try {
+    const response = await fetch(`/api/consultations/${encodeURIComponent(bookingId)}/attendance`, {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchStatus(bookingId: string): Promise<CallStatus | null> {
+  try {
+    const response = await fetch(`/api/consultations/${encodeURIComponent(bookingId)}/status`, { cache: "no-store", credentials: "same-origin" });
+    return response.ok ? ((await response.json()) as CallStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+type EndResponse = { ok: true } | { ok: false; problem: CallErrorCode | "network" };
+
+async function requestEnd(bookingId: string): Promise<EndResponse> {
+  try {
+    const response = await fetch(`/api/consultations/${encodeURIComponent(bookingId)}/end`, { method: "POST", cache: "no-store", credentials: "same-origin" });
+    if (response.ok) return { ok: true };
+    const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
+    return { ok: false, problem: CALL_ERROR_CODES.find((code) => code === error) ?? "unavailable" };
   } catch {
     return { ok: false, problem: "network" };
   }
@@ -111,6 +163,9 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
   const [connection, setConnection] = useState<ConnectionState>("DISCONNECTED");
   const [signal, setSignal] = useState<SignalLevel>(UNKNOWN_SIGNAL);
   const [soundBlocked, setSoundBlocked] = useState(false);
+  /** Both participants have been in the call together (server's view): the doctor can end it. */
+  const [started, setStarted] = useState(false);
+  const [ending, setEnding] = useState(false);
 
   const gen = useRef(0);
   const micRef = useRef<IMicrophoneAudioTrack | null>(null);
@@ -124,6 +179,9 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
   const remoteVideo = useRef<IRemoteVideoTrack | null>(null);
   const remoteAudio = useRef<IRemoteAudioTrack | null>(null);
   const rejoining = useRef(false);
+  /** We told the server we joined, so leaving the channel must tell it we left. */
+  const reportedJoin = useRef(false);
+  const checkStatusRef = useRef<() => void>(() => {});
   const wakeLock = useRef<WakeLockSentinel | null>(null);
 
   const tokenText = useCallback(
@@ -216,10 +274,15 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
     setPeer(NO_PEER);
     setConnection("DISCONNECTED");
     setSignal(UNKNOWN_SIGNAL);
+    setStarted(false);
     if (!client) return;
+    if (reportedJoin.current) {
+      reportedJoin.current = false;
+      void postAttendance(bookingId, "left");
+    }
     client.removeAllListeners();
     await client.leave().catch(() => {});
-  }, []);
+  }, [bookingId]);
 
   /** End this participant's call: leave, turn the camera and microphone off, show `next`. */
   const finish = useCallback(
@@ -233,6 +296,49 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
     },
     [closeLocal, dropClient, releaseWakeLock],
   );
+
+  /** After Agora let us in (first join or rejoin): tell the server, then see whether the call has started. */
+  const reportJoined = useCallback(
+    async (client: IAgoraRTCClient) => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (clientRef.current !== client) return;
+        if (await postAttendance(bookingId, "joined")) {
+          // Left while the report was on its way: undo it, so we don't stay "present".
+          if (clientRef.current !== client) return void postAttendance(bookingId, "left");
+          reportedJoin.current = true;
+          return checkStatusRef.current();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    },
+    [bookingId],
+  );
+
+  /** Ask the server whether the call has started and whether it has ended (then leave). */
+  const checkStatus = useCallback(async () => {
+    const client = clientRef.current;
+    if (!client) return;
+    const status = await fetchStatus(bookingId);
+    if (!status || clientRef.current !== client) return;
+    setStarted(status.started);
+    if (status.ended) await finish("over", describeCallEnded(role, status.endedBy));
+  }, [bookingId, finish, role]);
+
+  useEffect(() => {
+    checkStatusRef.current = () => void checkStatus();
+  }, [checkStatus]);
+
+  /** The doctor's "End for both": the server closes the call and completes the booking. */
+  const endForBoth = useCallback(async () => {
+    if (role !== "doctor" || !clientRef.current) return;
+    setEnding(true);
+    setNotice(null);
+    const result = await requestEnd(bookingId);
+    setEnding(false);
+    if (result.ok) return void (await finish("over", describeCallEnded("doctor", "doctor")));
+    setNotice(describeEndProblem(result.problem));
+    if (result.problem === "ended" || result.problem === "not_active") checkStatusRef.current();
+  }, [bookingId, finish, role]);
 
   const publishLocal = useCallback(async (client: IAgoraRTCClient) => {
     // A disabled track can't be published (TRACK_IS_DISABLED); the camera is published when turned on.
@@ -279,17 +385,21 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
       await client.join(appId, channel, token, uid);
       grantRef.current = result.grant;
       await publishLocal(client);
+      void reportJoined(client);
     } catch (error) {
       if (clientRef.current === client) await finish("left", describeJoinError(codeOf(error)));
     } finally {
       rejoining.current = false;
     }
-  }, [bookingId, finish, publishLocal, tokenText]);
+  }, [bookingId, finish, publishLocal, reportJoined, tokenText]);
 
   const listen = useCallback(
     (client: IAgoraRTCClient, peerUid: number) => {
       client.on("user-joined", (user) => {
-        if (user.uid === peerUid) setPeer((p) => ({ ...p, present: true, dropped: false, left: false }));
+        if (user.uid !== peerUid) return;
+        setPeer((p) => ({ ...p, present: true, dropped: false, left: false }));
+        // Their "joined" report reaches the server just after Agora tells us; then the call has started.
+        setTimeout(() => checkStatusRef.current(), 3000);
       });
       client.on("user-published", async (user, mediaType) => {
         if (user.uid !== peerUid || mediaType === "datachannel") return;
@@ -326,6 +436,8 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
         remoteVideo.current = null;
         remoteAudio.current = null;
         setPeer({ ...NO_PEER, dropped: reason === "ServerTimeOut", left: reason !== "ServerTimeOut" });
+        // They may have ended the consultation for both (the doctor's button), not just left.
+        if (reason !== "ServerTimeOut") checkStatusRef.current();
       });
       client.on("connection-state-change", (current, _previous, reason) => {
         if (clientRef.current !== client) return;
@@ -368,13 +480,14 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
       if (gen.current !== mine || clientRef.current !== client) return void (await client.leave().catch(() => {}));
       await publishLocal(client);
       setPhase("in-call");
+      void reportJoined(client);
     } catch (error) {
       if (clientRef.current !== client) return;
       await dropClient();
       setProblem(describeJoinError(codeOf(error)));
       setPhase("lobby");
     }
-  }, [bookingId, dropClient, finish, listen, publishLocal, tokenText]);
+  }, [bookingId, dropClient, finish, listen, publishLocal, reportJoined, tokenText]);
 
   const leave = useCallback(() => finish("left"), [finish]);
 
@@ -527,6 +640,13 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
     };
   }, [phase, releaseWakeLock]);
 
+  // While in the call: has it started (the doctor can end it for both), and has it been ended?
+  useEffect(() => {
+    if (phase !== "in-call") return;
+    const timer = setInterval(() => void checkStatus(), siteConfig.consultation.statusPollSeconds * 1000);
+    return () => clearInterval(timer);
+  }, [checkStatus, phase]);
+
   // The hard stop (end + grace): leave, as the server would refuse further tokens anyway.
   useEffect(() => {
     if (phase !== "in-call" || !grant) return;
@@ -548,11 +668,14 @@ export function useConsultationCall({ bookingId, role, timeZone }: Options) {
     connection,
     signal,
     soundBlocked,
+    started,
+    ending,
     localVideoRef,
     remoteVideoRef,
     actions: {
       join,
       leave,
+      endForBoth,
       rejoin: prepare,
       toggleMic,
       toggleCamera,

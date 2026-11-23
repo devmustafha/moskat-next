@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Clock, Mic, MicOff, PhoneOff, SwitchCamera, Video, VideoOff, Volume2, WifiOff } from "lucide-react";
+import { CircleAlert, CircleStop, Clock, Mic, MicOff, PhoneOff, SwitchCamera, Video, VideoOff, Volume2, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -210,7 +210,7 @@ function Lobby({ call, now, peerName, timeZone, startsAt, endsAt, opensAt, role 
   );
 }
 
-function CallStage({ call, now, peerName, timeZone, endsAt, hardStopAt }: ViewProps) {
+function CallStage({ call, now, peerName, timeZone, endsAt, hardStopAt, role }: ViewProps) {
   const [coarsePointer] = useState(() => window.matchMedia("(pointer: coarse)").matches);
   const stage = useRef<HTMLDivElement>(null);
   const { local, peer, actions } = call;
@@ -288,7 +288,7 @@ function CallStage({ call, now, peerName, timeZone, endsAt, hardStopAt }: ViewPr
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-3 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)]">
+      <div className="flex flex-wrap items-center justify-center gap-3 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)]">
         <ControlButton
           icon={local.micMuted ? MicOff : Mic}
           label={local.micMuted ? "Unmute microphone" : "Mute microphone"}
@@ -316,8 +316,41 @@ function CallStage({ call, now, peerName, timeZone, endsAt, hardStopAt }: ViewPr
           <PhoneOff aria-hidden="true" className="size-4" strokeWidth={2} />
           Leave
         </button>
+        {role === "doctor" && <EndForBoth call={call} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * The doctor's "End for both", in two taps (the second within 5 s), so it isn't hit by accident.
+ * Disabled until the patient has been in the call: before that the doctor can only leave.
+ */
+function EndForBoth({ call }: { call: ConsultationCall }) {
+  const [confirming, setConfirming] = useState(false);
+  const disabled = !call.started || call.ending;
+
+  useEffect(() => {
+    if (!confirming) return;
+    const timer = setTimeout(() => setConfirming(false), 5000);
+    return () => clearTimeout(timer);
+  }, [confirming]);
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={call.started ? undefined : "You can end the consultation for both once your patient has joined"}
+      onClick={() => {
+        if (!confirming) return setConfirming(true);
+        setConfirming(false);
+        void call.actions.endForBoth();
+      }}
+      className="flex h-12 items-center gap-2 rounded-full bg-alert px-5 text-small font-medium text-white transition-opacity duration-200 ease-out-soft disabled:opacity-50 sm:h-14 sm:px-6"
+    >
+      <CircleStop aria-hidden="true" className="size-4" strokeWidth={2} />
+      {call.ending ? "Ending…" : confirming ? "Tap again to end for both" : "End for both"}
+    </button>
   );
 }
 

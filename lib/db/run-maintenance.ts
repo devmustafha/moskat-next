@@ -14,5 +14,5 @@ if (!url) throw new Error("Set DATABASE_URL before running maintenance.");
 
 const result = await withDb(url, (db) => runMaintenance(db, new Date()));
 console.log(
-  `maintenance: expiredHolds=${result.expiredHolds} completed=${result.completed} purged=${result.purged} expiredSessions=${result.expiredSessions}`,
+  `maintenance: expiredHolds=${result.expiredHolds} callsClosed=${result.callsClosed} completed=${result.completed} missed=${result.missed} purged=${result.purged} expiredSessions=${result.expiredSessions}`,
 );

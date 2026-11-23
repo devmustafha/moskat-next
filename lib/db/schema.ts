@@ -279,10 +279,10 @@ export const consultationCalls = pgTable(
       .references(() => consultationBookings.id, { onDelete: "restrict" }),
     /** Random Agora channel name (32 hex characters), never derived from the booking id. */
     channelName: text("channel_name").notNull().unique(),
-    /** When each participant first joined (their first token was issued). */
+    /** When each participant first joined (the call screen reports it once Agora let them in). */
     doctorJoinedAt: timestamp("doctor_joined_at", { withTimezone: true }),
     patientJoinedAt: timestamp("patient_joined_at", { withTimezone: true }),
-    /** When each participant last left. */
+    /** When each participant last left; cleared when they rejoin, so null after a join means present. */
     doctorLeftAt: timestamp("doctor_left_at", { withTimezone: true }),
     patientLeftAt: timestamp("patient_left_at", { withTimezone: true }),
     /** When both were first in the call together. */
