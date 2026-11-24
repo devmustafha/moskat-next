@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { ConsultationRole } from "@/lib/consultation/access";
 import { formatCountdown } from "@/lib/consultation/call-ui";
-import { formatTime } from "@/lib/format";
+import { formatTime, initialsOf } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ControlButton, DevicePicker, MicLevel, NetworkIndicator } from "./call-parts";
 import { type ConsultationCall, useConsultationCall } from "./use-consultation-call";
@@ -245,7 +245,7 @@ function CallStage({ call, now, peerName, timeZone, endsAt, hardStopAt, role }: 
           <div className="absolute inset-0 grid place-items-center p-8 text-center">
             <div className="grid justify-items-center gap-4">
               <span aria-hidden="true" className="grid size-20 place-items-center rounded-full bg-white/10 text-h3">
-                {initials(peerName)}
+                {initialsOf(peerName)}
               </span>
               <p aria-live="polite" className="max-w-xs text-small text-white/80">
                 {peerStatus}
@@ -356,9 +356,4 @@ function EndForBoth({ call }: { call: ConsultationCall }) {
 
 function Banner({ children }: { children: ReactNode }) {
   return <p className="glass max-w-md rounded-field px-4 py-2 text-center text-caption">{children}</p>;
-}
-
-function initials(name: string) {
-  const words = name.replace(/^(Dr\.?|Prof\.?)\s+/i, "").split(/\s+/).filter(Boolean);
-  return (words[0]?.[0] ?? "") + (words.length > 1 ? (words.at(-1)?.[0] ?? "") : "");
 }

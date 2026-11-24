@@ -1,31 +1,44 @@
 "use client";
 
 import { Menu, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ButtonLink } from "@/components/ui/button";
 import { NavLink } from "./nav-links";
 
 type MobileMenuProps = {
   links: readonly { label: string; href: string }[];
-  /** "Sign in" or "Your account". */
-  account: { label: string; href: string };
+  /** Signed out: end the list with "Sign in". (Signed in, the avatar beside this button has the account links.) */
+  signIn: boolean;
   bookingHref: string;
 };
 
-/** Disclosure menu for screens below the desktop breakpoint. */
-export function MobileMenu({ links, account, bookingHref }: MobileMenuProps) {
+/**
+ * Disclosure menu for screens below the desktop breakpoint. Closed by Escape, choosing a link,
+ * or a click outside it (e.g. on the avatar menu next to it).
+ */
+export function MobileMenu({ links, signIn, bookingHref }: MobileMenuProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    const onPointer = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
   }, [open]);
 
+  const items = signIn ? [...links, { label: "Sign in", href: "/sign-in" }] : links;
+
   return (
-    <div className="lg:hidden">
+    <div ref={root} className="lg:hidden">
       <button
         type="button"
         aria-expanded={open}
@@ -44,7 +57,7 @@ export function MobileMenu({ links, account, bookingHref }: MobileMenuProps) {
       >
         <nav aria-label="Main">
           <ul className="divide-y">
-            {[...links, account].map((link) => (
+            {items.map((link) => (
               <li key={link.href}>
                 <NavLink
                   href={link.href}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatWallTime, formatWeekday, startOfDayIn } from "./format";
+import { formatWallTime, formatWeekday, initialsOf, startOfDayIn } from "./format";
 
 describe("startOfDayIn", () => {
   it("returns local midnight in the given zone", () => {
@@ -25,5 +25,19 @@ describe("formatWeekday", () => {
   it("maps ISO weekdays", () => {
     expect(formatWeekday(1)).toBe("Monday");
     expect(formatWeekday(7)).toBe("Sunday");
+  });
+});
+
+describe("initialsOf", () => {
+  it("takes the first and last names' initials, without a title", () => {
+    expect(initialsOf("Dr. Amara Okafor")).toBe("AO");
+    expect(initialsOf("Prof Samuel Ade Adeyemi")).toBe("SA");
+    expect(initialsOf("mustapha shuaib")).toBe("MS");
+  });
+
+  it("copes with one name, extra spaces and punctuation", () => {
+    expect(initialsOf("  Ada  ")).toBe("A");
+    expect(initialsOf("Ngozi O'Brien-Eze")).toBe("NO");
+    expect(initialsOf("—")).toBe("?");
   });
 });
