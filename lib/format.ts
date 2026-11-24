@@ -100,3 +100,19 @@ export function formatWeekday(isoWeekday: number) {
   // January 1, 2024 was a Monday.
   return new Intl.DateTimeFormat(siteConfig.locale, { weekday: "long", timeZone: "UTC" }).format(Date.UTC(2024, 0, isoWeekday));
 }
+
+/**
+ * Up to two initials for an avatar: the first letters of the first and last names, ignoring a
+ * "Dr." or "Prof." title ("Dr. Amara Okafor" → "AO"). "?" if the name has no letters.
+ */
+export function initialsOf(name: string) {
+  const words = name
+    .replace(/^(Dr|Prof)\.?\s+/i, "")
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean);
+  if (words.length === 0) return "?";
+  const first = words[0][0];
+  const last = words.length > 1 ? words.at(-1)![0] : "";
+  return (first + last).toLocaleUpperCase();
+}
